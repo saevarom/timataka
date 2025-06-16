@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery } from 'react-query';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   Container,
   Typography,
@@ -29,6 +29,7 @@ import { fetchRaceResults, searchContestants } from '../services/api';
 function RaceResultsPage() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { raceId } = useParams();
   const queryParams = new URLSearchParams(location.search);
   const initialSearchTerm = queryParams.get('search') || '';
 
@@ -43,8 +44,16 @@ function RaceResultsPage() {
 
   // Fetch race results or search for contestants
   const { data, isLoading, error } = useQuery(
-    ['raceResults', searchTerm],
-    () => searchTerm ? searchContestants(searchTerm) : fetchRaceResults(),
+    ['raceResults', searchTerm, raceId],
+    () => {
+      if (searchTerm) {
+        return searchContestants(searchTerm);
+      } else if (raceId) {
+        return fetchRaceResults(raceId);
+      } else {
+        return fetchRaceResults();
+      }
+    },
     {
       refetchOnWindowFocus: false,
       staleTime: 60000, // 1 minute
@@ -61,6 +70,11 @@ function RaceResultsPage() {
     e.preventDefault();
     setSearchTerm(localSearch);
     navigate(`/races?search=${encodeURIComponent(localSearch)}`);
+    
+    // Track search with birth year in analytics (if available)
+    if (localSearch.match(/\b(19|20)\d{2}\b|\(\d{4}\)/)) {
+      console.log('Search with birth year:', localSearch);
+    }
   };
 
   // Toggle star status for a contestant
@@ -99,38 +113,49 @@ function RaceResultsPage() {
     <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
       <Paper sx={{ p: 2, display: 'flex', flexDirection: 'column' }}>
         <Typography variant="h5" gutterBottom>
-          Race Results
+          {raceId && data && data.length > 0 && data[0].raceName ? 
+            data[0].raceName : 'Race Results'}
         </Typography>
 
         {/* Search form */}
         <Box component="form" onSubmit={handleSearch} sx={{ 
           mb: 3, 
           display: 'flex', 
-          alignItems: 'center',
-          flexDirection: { xs: 'column', sm: 'row' },
+          flexDirection: 'column',
           width: '100%'
         }}>
-          <TextField
-            label="Search contestants"
-            variant="outlined"
-            size="small"
-            fullWidth
-            value={localSearch}
-            onChange={(e) => setLocalSearch(e.target.value)}
-            sx={{ 
-              mr: { xs: 0, sm: 1 },
-              mb: { xs: 1, sm: 0 },
-              width: '100%'
-            }}
-          />
-          <IconButton 
-            type="submit" 
-            color="primary" 
-            aria-label="search"
-            sx={{ alignSelf: { xs: 'flex-end', sm: 'auto' } }}
-          >
-            <SearchIcon />
-          </IconButton>
+          <Box sx={{
+            display: 'flex',
+            alignItems: 'center',
+            flexDirection: { xs: 'column', sm: 'row' },
+            width: '100%'
+          }}>
+            <TextField
+              label="Search contestants"
+              variant="outlined"
+              size="small"
+              fullWidth
+              value={localSearch}
+              onChange={(e) => setLocalSearch(e.target.value)}
+              placeholder="Name or Name with birth year (e.g. John 1985)"
+              sx={{ 
+                mr: { xs: 0, sm: 1 },
+                mb: { xs: 1, sm: 0 },
+                width: '100%'
+              }}
+            />
+            <IconButton 
+              type="submit" 
+              color="primary" 
+              aria-label="search"
+              sx={{ alignSelf: { xs: 'flex-end', sm: 'auto' } }}
+            >
+              <SearchIcon />
+            </IconButton>
+          </Box>
+          <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
+            Tip: Include birth year to find specific runners (e.g., "John 1985" or "Mary (1990)")
+          </Typography>
         </Box>
 
         {searchTerm && (
@@ -186,7 +211,14 @@ function RaceResultsPage() {
                       <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>{contestant.position}</TableCell>
                       <TableCell>
                         <Box sx={{ display: 'flex', flexDirection: 'column' }}>
-                          <Typography variant="body1">{contestant.name}</Typography>
+                          <Typography variant="body1">
+                            {contestant.name}
+                            {contestant.birthYear && (
+                              <Typography component="span" variant="body2" color="text.secondary" sx={{ ml: 1 }}>
+                                ({contestant.birthYear})
+                              </Typography>
+                            )}
+                          </Typography>
                           <Typography 
                             variant="body2" 
                             color="text.secondary" 

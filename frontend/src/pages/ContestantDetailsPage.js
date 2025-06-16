@@ -135,6 +135,9 @@ function ContestantDetailsPage() {
               {contestant.category && (
                 <Chip label={contestant.category} size="small" />
               )}
+              {contestant.birthYear && (
+                <Chip label={`Born: ${contestant.birthYear}`} size="small" />
+              )}
               {contestant.team && (
                 <Chip label={contestant.team} size="small" />
               )}

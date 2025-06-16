@@ -32,6 +32,40 @@ function HomePage() {
                 flexDirection: 'column',
                 alignItems: 'center',
                 height: '100%',
+                borderTop: '4px solid #4caf50',
+                transition: 'transform 0.3s',
+                '&:hover': {
+                  transform: 'translateY(-5px)'
+                }
+              }}
+            >
+              <Typography variant="h5" gutterBottom sx={{ color: '#4caf50' }}>
+                Browse Events
+              </Typography>
+              <Typography variant="body2" paragraph align="center">
+                View all running events organized by date. Each event contains multiple
+                races with detailed results and contestant information.
+              </Typography>
+              <Button 
+                variant="contained" 
+                component={Link} 
+                to="/events"
+                sx={{ mt: 'auto', bgcolor: '#4caf50', '&:hover': { bgcolor: '#388e3c' } }}
+              >
+                View Events
+              </Button>
+            </Paper>
+          </Grid>
+          
+          <Grid item xs={12} md={4}>
+            <Paper
+              elevation={4}
+              sx={{
+                p: 3,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                height: '100%',
                 borderTop: '4px solid #3f51b5',
                 transition: 'transform 0.3s',
                 '&:hover': {
@@ -109,11 +143,11 @@ function HomePage() {
               }}
             >
               <Typography variant="h5" gutterBottom sx={{ color: '#4caf50' }}>
-                Search
+                Advanced Search
               </Typography>
               <Typography variant="body2" paragraph align="center">
-                Search for contestants by name with support for Icelandic 
-                characters. Find contestants across all available races.
+                Search by name and birth year to find specific contestants. 
+                Try "Name 1985" or "Name (1985)" to find exact matches.
               </Typography>
               <Button 
                 variant="contained" 
@@ -126,6 +160,41 @@ function HomePage() {
             </Paper>
           </Grid>
         </Grid>
+      </Paper>
+      
+      <Paper sx={{ p: 4, mt: 4, bgcolor: '#fff9c4', border: '1px solid #ffd54f' }}>
+        <Typography variant="h5" gutterBottom sx={{ color: '#ff6f00' }}>
+          🎉 New Features
+        </Typography>
+        <Grid container spacing={2}>
+          <Grid item xs={12} sm={4}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 'bold' }}>Event Organization</Typography>
+            <Typography variant="body2">
+              Browse races organized by events, making it easier to find related competitions
+            </Typography>
+          </Grid>
+          <Grid item xs={12} sm={4}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 'bold' }}>Birth Year Display</Typography>
+            <Typography variant="body2">
+              See birth years with contestant names to better differentiate runners with the same name
+            </Typography>
+          </Grid>
+          <Grid item xs={12} sm={4}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 'bold' }}>Birth Year Search</Typography>
+            <Typography variant="body2">
+              Search by name and birth year for more precise results (e.g., "John 1985")
+            </Typography>
+          </Grid>
+        </Grid>
+        <Button
+          component={Link}
+          to="/tutorial"
+          variant="outlined"
+          color="warning"
+          sx={{ mt: 2 }}
+        >
+          Learn More About New Features
+        </Button>
       </Paper>
       
       <Paper sx={{ p: 4, mt: 4 }}>

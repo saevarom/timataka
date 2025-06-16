@@ -594,47 +594,11 @@ async function searchContestants(name) {
       allResults.push(...results);
     }
     
-    // Filter results by name or name+birthYear
-    let normalizedSearchName = name.toLowerCase();
-    let searchBirthYear = '';
-    
-    // Check if search includes a birth year (formats like "John 1980" or "John (1980)")
-    const birthYearMatch = name.match(/\b(19|20)\d{2}\b|\((\d{4})\)/);
-    if (birthYearMatch) {
-      searchBirthYear = birthYearMatch[1] || birthYearMatch[2] || birthYearMatch[0].replace(/[()]/g, '');
-      // Remove the birth year from the search name for better name matching
-      normalizedSearchName = normalizedSearchName.replace(/\(\d{4}\)|\b(19|20)\d{2}\b/g, '').trim();
-    }
-    
-    // First attempt: strict filtering with birth year if provided
-    let filteredResults = allResults.filter(contestant => {
-      const nameMatches = contestant.name.toLowerCase().includes(normalizedSearchName);
-      
-      // If search included a birth year, require both name and birth year to match
-      if (searchBirthYear && contestant.birthYear) {
-        return nameMatches && contestant.birthYear === searchBirthYear;
-      }
-      
-      return nameMatches;
-    });
-    
-    // If no results with exact birth year match, but we have a birth year search,
-    // fall back to name-only search but add a note to the results
-    if (filteredResults.length === 0 && searchBirthYear) {
-      console.log(`No exact birth year matches for "${name}". Falling back to name-only search.`);
-      
-      filteredResults = allResults.filter(contestant => 
-        contestant.name.toLowerCase().includes(normalizedSearchName)
-      );
-      
-      // Add a note to the first result if any results were found
-      if (filteredResults.length > 0) {
-        filteredResults[0] = { 
-          ...filteredResults[0],
-          name: `${filteredResults[0].name} (Birth year ${searchBirthYear} not found)`
-        };
-      }
-    }
+    // Filter results by name
+    const normalizedSearchName = name.toLowerCase();
+    const filteredResults = allResults.filter(contestant => 
+      contestant.name.toLowerCase().includes(normalizedSearchName)
+    );
     
     // Remove duplicates (same person might be in multiple races)
     const uniqueResults = [];

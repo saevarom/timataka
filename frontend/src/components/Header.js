@@ -97,6 +97,13 @@ function Header() {
         <Box sx={{ display: { xs: 'flex' } }}>
           <Button
             component={Link}
+            to="/events"
+            color="inherit"
+          >
+            Events
+          </Button>
+          <Button
+            component={Link}
             to="/races"
             color="inherit"
           >
@@ -109,6 +116,17 @@ function Header() {
             startIcon={<StarIcon />}
           >
             Starred
+          </Button>
+          <Button
+            component={Link}
+            to="/tutorial"
+            color="inherit"
+            sx={{ 
+              bgcolor: 'rgba(255,255,255,0.1)', 
+              '&:hover': { bgcolor: 'rgba(255,255,255,0.2)' } 
+            }}
+          >
+            New Features
           </Button>
         </Box>
       </Toolbar>

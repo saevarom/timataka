@@ -3,7 +3,7 @@ const cors = require('cors');
 const morgan = require('morgan');
 const helmet = require('helmet');
 const { createProxyMiddleware } = require('http-proxy-middleware');
-const { scrapeRaceResults, scrapeContestantDetails, searchContestants } = require('./services/scraper');
+const { scrapeRaceResults, scrapeContestantDetails, searchContestants, getEvents, getLatestRaces } = require('./services/scraper');
 
 // Initialize express app
 const app = express();
@@ -23,7 +23,15 @@ app.get('/health', (req, res) => {
 // API to get race results
 app.get('/races', async (req, res) => {
   try {
-    const { raceId, categoryId } = req.query;
+    const { raceId, categoryId, eventId } = req.query;
+    
+    // If eventId is provided, get races for that event
+    if (eventId) {
+      const races = await getLatestRaces(50, eventId);
+      return res.json(races);
+    }
+    
+    // Otherwise get race results
     const results = await scrapeRaceResults(raceId, categoryId);
     // The scraper now returns a default result on error
     res.json(results);
@@ -93,6 +101,26 @@ app.get('/search', async (req, res) => {
       name: `No results for "${req.query.name || 'unknown'}"`,
       message: error.message,
       time: new Date().toISOString()
+    }]);
+  }
+});
+
+// API to get events
+app.get('/events', async (req, res) => {
+  try {
+    const { limit } = req.query;
+    const limitNum = limit ? parseInt(limit) : 10;
+    const events = await getEvents(limitNum);
+    res.json(events);
+  } catch (error) {
+    console.error('Error fetching events:', error);
+    // Provide a default response even on catastrophic errors
+    res.json([{
+      id: 'error',
+      name: 'Error fetching events',
+      message: error.message,
+      date: new Date().toISOString().split('T')[0],
+      url: '#'
     }]);
   }
 });

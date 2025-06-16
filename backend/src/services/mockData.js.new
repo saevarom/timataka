@@ -242,45 +242,8 @@ const searchMockContestants = (query) => {
       .replace(/ð/g, 'd');
   };
   
-  // Process query to look for birth year
-  let normalizedQuery = normalizeText(query);
-  let searchBirthYear = '';
+  const normalizedQuery = normalizeText(query);
   
-  // Check if search includes a birth year (formats like "John 1980" or "John (1980)")
-  const birthYearMatch = query.match(/\b(19|20)\d{2}\b|\((\d{4})\)/);
-  if (birthYearMatch) {
-    searchBirthYear = birthYearMatch[1] || birthYearMatch[2] || birthYearMatch[0].replace(/[()]/g, '');
-    // Remove the birth year from the search name for better name matching
-    normalizedQuery = normalizedQuery.replace(/\(\d{4}\)|\b(19|20)\d{2}\b/g, '').trim();
-  }
-  
-  // First try exact birth year matching if provided
-  if (searchBirthYear) {
-    const exactMatches = mockRaceResults.filter(contestant => {
-      const normalizedName = normalizeText(contestant.name);
-      return normalizedName.includes(normalizedQuery) && contestant.birthYear === searchBirthYear;
-    });
-    
-    if (exactMatches.length > 0) {
-      return exactMatches;
-    }
-    
-    // If no exact matches, fall back to regular search but add a note
-    const fallbackResults = mockRaceResults.filter(contestant => {
-      const normalizedName = normalizeText(contestant.name);
-      return normalizedName.includes(normalizedQuery);
-    });
-    
-    if (fallbackResults.length > 0) {
-      fallbackResults[0] = { 
-        ...fallbackResults[0],
-        name: `${fallbackResults[0].name} (Birth year ${searchBirthYear} not found)`
-      };
-      return fallbackResults;
-    }
-  }
-  
-  // Normal search without birth year or as fallback
   return mockRaceResults.filter(contestant => {
     const normalizedName = normalizeText(contestant.name);
     const normalizedClub = normalizeText(contestant.club || '');

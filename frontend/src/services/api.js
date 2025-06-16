@@ -12,12 +12,43 @@ const api = axios.create({
 });
 
 /**
+ * Fetch all events
+ * @returns {Promise<Array>} Promise that resolves to an array of events
+ */
+export const fetchEvents = async () => {
+  try {
+    const response = await api.get('/events');
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching events:', error);
+    throw new Error(error.response?.data?.error || 'Failed to fetch events');
+  }
+};
+
+/**
+ * Fetch all races for a specific event
+ * @param {string} eventId - The event ID
+ * @returns {Promise<Array>} Promise that resolves to an array of races
+ */
+export const fetchRacesByEvent = async (eventId) => {
+  try {
+    const response = await api.get(`/races?eventId=${eventId}`);
+    return response.data;
+  } catch (error) {
+    console.error(`Error fetching races for event ${eventId}:`, error);
+    throw new Error(error.response?.data?.error || 'Failed to fetch races for event');
+  }
+};
+
+/**
  * Fetch all race results
+ * @param {string} raceId - Optional race ID to filter results
  * @returns {Promise<Array>} Promise that resolves to an array of race results
  */
-export const fetchRaceResults = async () => {
+export const fetchRaceResults = async (raceId = '') => {
   try {
-    const response = await api.get('/races');
+    const url = raceId ? `/races?raceId=${encodeURIComponent(raceId)}` : '/races';
+    const response = await api.get(url);
     return response.data;
   } catch (error) {
     console.error('Error fetching race results:', error);

@@ -1,11 +1,39 @@
 # Timataka Results Web Application
 
-A web application that scrapes race results from [timataka.net](https://timataka.net) and provides a better user interface. This application allows users to search for contestants by name and star their favorites to get live updates on their progress through time splits.
+A web application that scrapes race results from [timataka.net](https://timataka.net) and provides a better user interface.
+
+> **New!** See [FEATURES.md](./FEATURES.md) for detailed documentation of our new event organization and birth year features.
+
+## New Features in Detail
+
+### Event Organization
+
+The application now organizes races by events, providing a hierarchical view:
+- **Events Page**: Browse all running events
+- **Event Detail Page**: View all races within an event
+- **Race Results Page**: See results for a specific race
+
+### Birth Year Display
+
+To better differentiate contestants with the same name:
+- Birth years are now displayed next to contestant names in race results
+- Birth years are shown on contestant detail pages
+- Search functionality supports searching by name and birth year (e.g., "John 1985" or "John (1985)")
+
+### Improved Search
+
+The search feature has been enhanced to:
+- Match contestants by both name and birth year when provided
+- Use birth year to better identify unique contestants in results
+- Display more accurate results when multiple people have the same namea better user interface. This application allows users to search for contestants by name and star their favorites to get live updates on their progress through time splits.
 
 ## Features
 
 - Scrape race results from timataka.net in real-time
+- Browse events and races organized by event
 - Search for contestants by name with support for Icelandic characters
+- Search with birth year to differentiate contestants with the same name (format: "John 1985" or "John (1985)")
+- View birth years alongside contestant names for better identification
 - Star your favorite contestants for quick access
 - Get live updates on contestant progress through time splits (refreshed every 30 seconds)
 - Responsive design for desktop and mobile with optimized table views
@@ -100,10 +128,12 @@ docker-compose up --build
 ## API Endpoints
 
 - `GET /health` - Check API health status
+- `GET /events` - Get all events
 - `GET /races` - Get latest race results
+- `GET /races?eventId=XYZ` - Get races for a specific event
 - `GET /races?raceId=XYZ&categoryId=ABC` - Get results for a specific race and category
 - `GET /contestants/:id` - Get details for a specific contestant
-- `GET /search?name=XYZ` - Search for contestants by name
+- `GET /search?name=XYZ` - Search for contestants by name (supports name with birth year format)
 
 ## Project Structure
 
