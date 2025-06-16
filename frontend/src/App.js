@@ -1,0 +1,44 @@
+import React from 'react';
+import { Routes, Route } from 'react-router-dom';
+import { ThemeProvider, createTheme } from '@mui/material/styles';
+import CssBaseline from '@mui/material/CssBaseline';
+import Header from './components/Header';
+import HomePage from './pages/HomePage';
+import RaceResultsPage from './pages/RaceResultsPage';
+import ContestantDetailsPage from './pages/ContestantDetailsPage';
+import StarredContestantsPage from './pages/StarredContestantsPage';
+import './App.css';
+
+// Create a theme
+const theme = createTheme({
+  palette: {
+    primary: {
+      main: '#1976d2',
+    },
+    secondary: {
+      main: '#f50057',
+    },
+    mode: 'light',
+  },
+});
+
+function App() {
+  return (
+    <ThemeProvider theme={theme}>
+      <CssBaseline />
+      <div className="App">
+        <Header />
+        <main className="main-content">
+          <Routes>
+            <Route path="/" element={<HomePage />} />
+            <Route path="/races" element={<RaceResultsPage />} />
+            <Route path="/contestant/:id" element={<ContestantDetailsPage />} />
+            <Route path="/starred" element={<StarredContestantsPage />} />
+          </Routes>
+        </main>
+      </div>
+    </ThemeProvider>
+  );
+}
+
+export default App;
