@@ -4,6 +4,8 @@ const { scrapeRaceResults, scrapeContestantDetails, getEvents } = require('../se
 // Override mock data usage for this test
 process.env.USE_MOCK_DATA = 'false';
 console.log('Running test script in real scraping mode (USE_MOCK_DATA=false)');
+console.log('This script will verify that birth years can be extracted from timataka.net');
+console.log('----------------------------------------------------------------------');
 
 // Test functions
 async function testBirthYearExtraction() {

@@ -130,16 +130,32 @@ function EventDetailPage() {
         {/* No races message */}
         {!racesLoading && (!races || races.length === 0) && (
           <Box sx={{ textAlign: 'center', py: 4 }}>
-            <Typography variant="body1" color="text.secondary" gutterBottom>
-              No races found for this event.
-            </Typography>
-            <Button
-              variant="outlined"
-              onClick={() => window.location.reload()}
-              sx={{ mt: 2 }}
-            >
-              Refresh
-            </Button>
+            <Alert severity="info" sx={{ mb: 3, mx: 'auto', maxWidth: '600px' }}>
+              <Typography variant="body1" gutterBottom>
+                No races found for this event.
+              </Typography>
+              <Typography variant="body2">
+                If you are using real data from timataka.net, this event might not have any races available.
+                You might want to try toggling back to mock data to see example data.
+              </Typography>
+            </Alert>
+            <Box sx={{ mt: 2 }}>
+              <Button
+                variant="outlined"
+                onClick={() => window.location.reload()}
+                sx={{ mr: 1 }}
+              >
+                Refresh
+              </Button>
+              <Button
+                variant="outlined"
+                component={RouterLink}
+                to="/events"
+                sx={{ ml: 1 }}
+              >
+                Back to Events
+              </Button>
+            </Box>
           </Box>
         )}
       </Paper>

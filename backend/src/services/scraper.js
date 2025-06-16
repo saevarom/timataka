@@ -14,7 +14,8 @@ const {
 const BASE_URL = 'https://timataka.net';
 
 // Flag to control whether to use mock data (useful for development and testing)
-const USE_MOCK_DATA = process.env.USE_MOCK_DATA === 'true' || process.env.NODE_ENV === 'development';
+// If USE_MOCK_DATA is explicitly set to false, use real data even in development
+const USE_MOCK_DATA = process.env.USE_MOCK_DATA !== 'false' && (process.env.USE_MOCK_DATA === 'true' || process.env.NODE_ENV === 'development');
 
 /**
  * Get list of events from timataka.net
@@ -27,6 +28,8 @@ async function getEvents(limit = 10) {
     console.log('Using mock event data instead of scraping');
     return mockEvents.slice(0, limit);
   }
+  
+  console.log('Fetching real events from timataka.net');
 
   try {
     const response = await axios.get(BASE_URL);
@@ -129,6 +132,9 @@ async function getLatestRaces(limit = 10, eventId = null) {
     }
     return mockRaces.slice(0, limit);
   }
+  
+  console.log(`Fetching real races from timataka.net ${eventId ? `for event ${eventId}` : ''}`);
+  
 
   try {
     // If eventId is provided, we'll try to get races for that specific event
@@ -281,6 +287,9 @@ async function scrapeRaceResults(raceId = '', categoryId = '') {
     return mockRaceResults;
   }
   
+  console.log(`Fetching real race results for ${raceId || 'latest race'}`);
+  
+  
   try {
     // If no specific race is provided, get the latest race
     let raceUrl = '';
@@ -290,14 +299,17 @@ async function scrapeRaceResults(raceId = '', categoryId = '') {
         const latestRaces = await getLatestRaces(1);
         if (latestRaces.length > 0) {
           raceUrl = latestRaces[0].url;
+          console.log(`Using latest race URL: ${raceUrl}`);
         } else {
           // Fallback to a hardcoded recent race URL if no races found
           console.log('No races found with scraper, using fallback race URL');
           raceUrl = `${BASE_URL}/results`;
+          console.log(`Using fallback race URL: ${raceUrl}`);
         }
       } catch (error) {
         console.log('Error getting latest races, using fallback race URL', error);
         raceUrl = `${BASE_URL}/results`;
+        console.log(`Using fallback race URL after error: ${raceUrl}`);
       }
     } else {
       raceUrl = `${BASE_URL}/${raceId}/urslit/`;
@@ -457,6 +469,9 @@ async function scrapeContestantDetails(contestantId, raceId = '') {
       status: "Finished"
     };
   }
+  
+  console.log(`Fetching real contestant details for ID ${contestantId}`);
+  
 
   try {
     // If the contestant ID is in the format raceId-position-name
@@ -582,6 +597,9 @@ async function searchContestants(name) {
     return searchMockContestants(name);
   }
   
+  console.log(`Searching for contestants matching "${name}" from timataka.net`);
+  
+  
   try {
     // Since timataka.net doesn't have a direct search API that we can use,
     // we'll get recent races and search through their results
@@ -590,9 +608,13 @@ async function searchContestants(name) {
     
     // Search through each race's results
     for (const race of races) {
+      console.log(`Searching race ${race.id} (${race.name || 'unnamed'}) for contestant "${name}"`);
       const results = await scrapeRaceResults(race.id);
+      console.log(`Found ${results.length} results in race ${race.id}`);
       allResults.push(...results);
     }
+    
+    console.log(`Total results across all races: ${allResults.length}`);
     
     // Filter results by name or name+birthYear
     let normalizedSearchName = name.toLowerCase();
@@ -641,12 +663,38 @@ async function searchContestants(name) {
     const seenNames = new Set();
     
     for (const contestant of filteredResults) {
-      // Create a unique key combining name, club and birth year to better identify unique contestants
-      const uniqueKey = `${contestant.name}|${contestant.club || ''}|${contestant.birthYear || ''}`;
+      try {
+        // Create a unique key combining name, club and birth year to better identify unique contestants
+        const uniqueKey = `${contestant.name}|${contestant.club || ''}|${contestant.birthYear || ''}`;
+        
+        if (!seenNames.has(uniqueKey)) {
+          seenNames.add(uniqueKey);
+          uniqueResults.push(contestant);
+        }
+      } catch (error) {
+        console.error('Error processing contestant in search results:', error);
+        // Skip this contestant if there was an error
+      }
+    }
+    
+    // Add diagnostic information when using real data
+    if (!USE_MOCK_DATA) {
+      console.log(`Found ${uniqueResults.length} unique results from ${filteredResults.length} total results`);
       
-      if (!seenNames.has(uniqueKey)) {
-        seenNames.add(uniqueKey);
-        uniqueResults.push(contestant);
+      // If we have very few results, expand search to categories
+      if (uniqueResults.length === 0 && allResults.length > 0) {
+        console.log('No results found, trying to search in categories as fallback');
+        const categoryResults = allResults.filter(contestant => 
+          contestant.category && contestant.category.toLowerCase().includes(normalizedSearchName)
+        ).slice(0, 10);
+        
+        if (categoryResults.length > 0) {
+          categoryResults[0] = { 
+            ...categoryResults[0],
+            name: `${categoryResults[0].name} (Matched category: ${categoryResults[0].category})`
+          };
+          return categoryResults;
+        }
       }
     }
     

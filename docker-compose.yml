@@ -21,7 +21,7 @@ services:
       - /app/node_modules
     environment:
       - NODE_ENV=development
-      - USE_MOCK_DATA=true
+      - USE_MOCK_DATA=false
     command: npm run dev
 
   nginx:

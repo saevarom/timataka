@@ -20,19 +20,46 @@ app.get('/health', (req, res) => {
   res.status(200).json({ status: 'OK', message: 'Server is running' });
 });
 
+// API to get data source info
+app.get('/data-source', (req, res) => {
+  const isUsingMockData = process.env.USE_MOCK_DATA === 'true' || process.env.NODE_ENV === 'development';
+  res.status(200).json({ 
+    using_mock_data: isUsingMockData, 
+    data_source: isUsingMockData ? 'mock' : 'timataka.net',
+    env: process.env.NODE_ENV
+  });
+});
+
 // API to get race results
 app.get('/races', async (req, res) => {
   try {
     const { raceId, categoryId, eventId } = req.query;
+    const isUsingMockData = process.env.USE_MOCK_DATA === 'true' || process.env.NODE_ENV === 'development';
+    
+    // Log additional diagnostic info about data source
+    console.log(`/races endpoint called with params: raceId=${raceId || 'none'}, categoryId=${categoryId || 'none'}, eventId=${eventId || 'none'}`);
+    console.log(`Using ${isUsingMockData ? 'MOCK' : 'REAL'} data source`);
     
     // If eventId is provided, get races for that event
     if (eventId) {
       const races = await getLatestRaces(50, eventId);
+      
+      // Add extra diagnostic info for empty real data results
+      if (races.length === 0 && !isUsingMockData) {
+        console.log(`No races found for event ${eventId} with real data source`);
+      }
+      
       return res.json(races);
     }
     
     // Otherwise get race results
     const results = await scrapeRaceResults(raceId, categoryId);
+    
+    // Add extra diagnostic info for empty real data results
+    if (results.length === 0 && !isUsingMockData) {
+      console.log(`No race results found for raceId=${raceId || 'none'}, categoryId=${categoryId || 'none'} with real data source`);
+    }
+    
     // The scraper now returns a default result on error
     res.json(results);
   } catch (error) {
@@ -45,7 +72,8 @@ app.get('/races', async (req, res) => {
       message: error.message,
       time: new Date().toISOString(),
       raceId: req.query.raceId || 'none',
-      raceName: 'Error occurred'
+      raceName: 'Error occurred',
+      usingRealData: process.env.USE_MOCK_DATA !== 'true'
     }]);
   }
 });
@@ -80,6 +108,12 @@ app.get('/contestants/:id', async (req, res) => {
 app.get('/search', async (req, res) => {
   try {
     const { name } = req.query;
+    const isUsingMockData = process.env.USE_MOCK_DATA === 'true' || process.env.NODE_ENV === 'development';
+    
+    // Log additional diagnostic info
+    console.log(`/search endpoint called with name: "${name || 'empty'}"`);
+    console.log(`Using ${isUsingMockData ? 'MOCK' : 'REAL'} data source`);
+    
     if (!name) {
       return res.status(400).json([{ 
         id: 'search-error',
@@ -91,6 +125,12 @@ app.get('/search', async (req, res) => {
     // Use the dedicated search function instead of filtering race results
     // This provides better search capabilities across multiple races
     const searchResults = await searchContestants(name);
+    
+    // Add extra diagnostic info for empty real data results
+    if (searchResults.length === 0 && !isUsingMockData) {
+      console.log(`No search results found for "${name}" with real data source`);
+    }
+    
     res.json(searchResults);
   } catch (error) {
     console.error('Error searching contestants:', error);
@@ -100,7 +140,8 @@ app.get('/search', async (req, res) => {
       position: '-',
       name: `No results for "${req.query.name || 'unknown'}"`,
       message: error.message,
-      time: new Date().toISOString()
+      time: new Date().toISOString(),
+      usingRealData: process.env.USE_MOCK_DATA !== 'true'
     }]);
   }
 });

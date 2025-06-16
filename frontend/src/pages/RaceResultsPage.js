@@ -185,8 +185,29 @@ function RaceResultsPage() {
           </Box>
         )}
 
+        {/* No results message */}
+        {!isLoading && data && data.length === 0 && (
+          <Alert severity="info" sx={{ mb: 2 }}>
+            {searchTerm ? (
+              <>
+                No results found for "{searchTerm}". This could be because real data from timataka.net doesn't contain this information.
+                <Typography variant="body2" sx={{ mt: 1 }}>
+                  You might want to try toggling back to mock data to see example data.
+                </Typography>
+              </>
+            ) : (
+              <>
+                No results found for this race. This could be because real data from timataka.net doesn't contain this information.
+                <Typography variant="body2" sx={{ mt: 1 }}>
+                  You might want to try toggling back to mock data to see example data.
+                </Typography>
+              </>
+            )}
+          </Alert>
+        )}
+
         {/* Results table */}
-        {!isLoading && data && (
+        {!isLoading && data && data.length > 0 && (
           <>
             <TableContainer>
               <Table size="small">

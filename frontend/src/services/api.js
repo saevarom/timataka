@@ -49,6 +49,20 @@ export const fetchRaceResults = async (raceId = '') => {
   try {
     const url = raceId ? `/races?raceId=${encodeURIComponent(raceId)}` : '/races';
     const response = await api.get(url);
+    
+    // Check if we received empty results (likely using real data with no results)
+    if (response.data && response.data.length === 0) {
+      console.log(`Empty race results for race ${raceId || 'all races'}, checking data source`);
+      
+      // Check if we're using real data
+      const dataSourceInfo = await fetchDataSourceInfo();
+      
+      // If we're using real data and got no results, log a more helpful message
+      if (!dataSourceInfo.using_mock_data) {
+        console.log('Empty race results from real data source. Real data may not contain this information.');
+      }
+    }
+    
     return response.data;
   } catch (error) {
     console.error('Error fetching race results:', error);
@@ -79,10 +93,42 @@ export const fetchContestantDetails = async (id) => {
 export const searchContestants = async (name) => {
   try {
     const response = await api.get(`/search?name=${encodeURIComponent(name)}`);
+    
+    // Check if we received empty results (likely using real data with no results)
+    if (response.data && response.data.length === 0) {
+      console.log('Empty search results, checking data source');
+      
+      // Check if we're using real data
+      const dataSourceInfo = await fetchDataSourceInfo();
+      
+      // If we're using real data and got no results, log a more helpful message
+      if (!dataSourceInfo.using_mock_data) {
+        console.log('Empty search results from real data source. Real data may not contain this information.');
+      }
+    }
+    
     return response.data;
   } catch (error) {
     console.error('Error searching contestants:', error);
     throw new Error(error.response?.data?.error || 'Failed to search contestants');
+  }
+};
+
+/**
+ * Fetch information about the current data source
+ * @returns {Promise<Object>} Promise that resolves to data source information
+ */
+export const fetchDataSourceInfo = async () => {
+  try {
+    const response = await api.get('/data-source');
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching data source info:', error);
+    return { 
+      using_mock_data: true,
+      data_source: 'mock (fallback)',
+      error: error.message 
+    };
   }
 };
 

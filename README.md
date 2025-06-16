@@ -3,6 +3,10 @@
 A web application that scrapes race results from [timataka.net](https://timataka.net) and provides a better user interface.
 
 > **New!** See [FEATURES.md](./FEATURES.md) for detailed documentation of our new event organization and birth year features.
+>
+> **Real Data:** See [REAL-DATA.md](./REAL-DATA.md) for instructions on using real data from timataka.net instead of mock data.
+>
+> **Update (June 2025):** Improved handling of real data with better fallback mechanisms and user feedback when real data doesn't contain all information.
 
 ## New Features in Detail
 
@@ -80,12 +84,36 @@ docker compose up
 
 ### Configuration
 
-The application is configured to use mock data in development mode, which makes it robust even when the timataka.net website structure changes or is unavailable. This behavior is controlled by environment variables in the Docker Compose file:
+The application can use either mock data or real data scraped from timataka.net. By default, it uses mock data in development mode, which makes it robust even when the timataka.net website structure changes or is unavailable.
+
+To switch between mock data and real data:
+
+```bash
+# Switch to real data
+./toggle-data-source.sh real
+
+# Switch to mock data
+./toggle-data-source.sh mock
+```
+
+After changing the data source, restart the backend:
+
+```bash
+docker compose restart backend
+```
+
+If you encounter issues with real data, you can use our diagnostics tool:
+
+```bash
+./timataka-diagnostics.sh
+```
+
+This behavior is controlled by environment variables in the Docker Compose file:
 
 ```yaml
 environment:
   - NODE_ENV=development
-  - USE_MOCK_DATA=true  # Set to false to always attempt real scraping
+  - USE_MOCK_DATA=true  # Set to false to use real data from timataka.net
 ```
 
 ### Troubleshooting

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { 
   AppBar, 
@@ -8,10 +8,18 @@ import {
   InputBase, 
   IconButton, 
   Box,
+  Chip,
+  Tooltip,
   alpha
 } from '@mui/material';
 import { styled } from '@mui/material/styles';
-import { Search as SearchIcon, Star as StarIcon } from '@mui/icons-material';
+import { 
+  Search as SearchIcon, 
+  Star as StarIcon, 
+  Storage as StorageIcon, 
+  Cloud as CloudIcon 
+} from '@mui/icons-material';
+import { fetchDataSourceInfo } from '../services/api';
 
 // Styled components
 const Search = styled('div')(({ theme }) => ({
@@ -56,7 +64,26 @@ const StyledInputBase = styled(InputBase)(({ theme }) => ({
 
 function Header() {
   const [searchTerm, setSearchTerm] = useState('');
+  const [dataSource, setDataSource] = useState({ loading: true, info: null });
   const navigate = useNavigate();
+  
+  // Fetch data source information
+  useEffect(() => {
+    const getDataSourceInfo = async () => {
+      try {
+        const info = await fetchDataSourceInfo();
+        setDataSource({ loading: false, info });
+      } catch (error) {
+        console.error('Error getting data source info:', error);
+        setDataSource({ 
+          loading: false, 
+          info: { using_mock_data: true, data_source: 'unknown' } 
+        });
+      }
+    };
+    
+    getDataSourceInfo();
+  }, []);
   
   const handleSearch = (e) => {
     e.preventDefault();
@@ -77,6 +104,26 @@ function Header() {
         >
           Timataka Results
         </Typography>
+        
+        {!dataSource.loading && dataSource.info && (
+          <Tooltip title={`Data source: ${dataSource.info.data_source}`}>
+            <Chip
+              size="small"
+              icon={dataSource.info.using_mock_data ? <StorageIcon /> : <CloudIcon />}
+              label={dataSource.info.using_mock_data ? "MOCK DATA" : "REAL DATA"}
+              color={dataSource.info.using_mock_data ? "default" : "success"}
+              sx={{ 
+                ml: 2, 
+                bgcolor: dataSource.info.using_mock_data ? 'rgba(255,255,255,0.15)' : 'rgba(76,175,80,0.25)',
+                '& .MuiChip-label': { 
+                  fontWeight: 'bold', 
+                  fontSize: '0.7rem'
+                },
+                display: { xs: 'none', md: 'flex' }
+              }}
+            />
+          </Tooltip>
+        )}
         
         <Box sx={{ flexGrow: 1 }} />
         
