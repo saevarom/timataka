@@ -21,13 +21,55 @@ app.get('/health', (req, res) => {
 });
 
 // API to get data source info
-app.get('/data-source', (req, res) => {
-  const isUsingMockData = process.env.USE_MOCK_DATA === 'true' || process.env.NODE_ENV === 'development';
-  res.status(200).json({ 
-    using_mock_data: isUsingMockData, 
-    data_source: isUsingMockData ? 'mock' : 'timataka.net',
-    env: process.env.NODE_ENV
-  });
+app.get('/data-source', async (req, res) => {
+  try {
+    // Simplified logic matching scraper.js: if USE_MOCK_DATA is 'false', use real data, otherwise use mock data
+    const isUsingMockData = process.env.USE_MOCK_DATA !== 'false';
+    
+    // Include connection info when using real data
+    let connectionStatus = null;
+    let lastSuccessfulConnection = null;
+    
+    if (!isUsingMockData) {
+      // Try to check if timataka.net is accessible without importing the whole scraper
+      try {
+        const https = require('https');
+        const axios = require('axios');
+        
+        // Make a quick test request
+        const agent = new https.Agent({ rejectUnauthorized: false });
+        await axios.get('https://timataka.net', { 
+          timeout: 3000, 
+          httpsAgent: agent,
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+          }
+        });
+        
+        connectionStatus = 'connected';
+        lastSuccessfulConnection = new Date().toISOString();
+      } catch (error) {
+        connectionStatus = 'disconnected';
+        console.log('Data source check could not connect to timataka.net:', error.message);
+      }
+    }
+    
+    res.status(200).json({ 
+      source: isUsingMockData ? 'mock' : 'real',
+      data_source: isUsingMockData ? 'mock' : 'timataka.net',
+      env: process.env.NODE_ENV,
+      mock_data_enabled: isUsingMockData,
+      connection_status: connectionStatus,
+      last_successful_connection: lastSuccessfulConnection,
+      cache_enabled: process.env.CACHE_ENABLED !== 'false'
+    });
+  } catch (error) {
+    console.error('Error checking data source info:', error);
+    res.status(500).json({ 
+      source: 'unknown',
+      error: 'Error determining data source' 
+    });
+  }
 });
 
 // API to get race results

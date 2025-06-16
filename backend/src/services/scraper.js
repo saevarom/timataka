@@ -1,6 +1,14 @@
 // filepath: /Users/som/Code/timataka/backend/src/services/scraper.js
 const axios = require('axios');
 const cheerio = require('cheerio');
+const https = require('https');
+const fs = require('fs');
+const path = require('path');
+
+// Configure axios to ignore SSL certificate errors
+const httpsAgent = new https.Agent({
+  rejectUnauthorized: false // Ignore SSL certificate issues
+});
 const { 
   mockRaces, 
   mockRaceResults, 
@@ -14,8 +22,152 @@ const {
 const BASE_URL = 'https://timataka.net';
 
 // Flag to control whether to use mock data (useful for development and testing)
-// If USE_MOCK_DATA is explicitly set to false, use real data even in development
-const USE_MOCK_DATA = process.env.USE_MOCK_DATA !== 'false' && (process.env.USE_MOCK_DATA === 'true' || process.env.NODE_ENV === 'development');
+// Simplified logic: if USE_MOCK_DATA is 'false', use real data, otherwise use mock data
+const USE_MOCK_DATA = process.env.USE_MOCK_DATA !== 'false';
+
+// Variable to track if timataka.net is accessible
+let timatakaAccessible = true;
+
+// Cache configuration
+const CACHE_ENABLED = process.env.CACHE_ENABLED !== 'false';
+const CACHE_DIR = path.join(__dirname, '../../../data/cache');
+const CACHE_TTL = 3600 * 1000; // Cache time-to-live: 1 hour in milliseconds
+const MAX_RETRIES = 3; // Maximum number of retries for network requests
+
+// Create cache directory if it doesn't exist
+if (CACHE_ENABLED) {
+  try {
+    if (!fs.existsSync(CACHE_DIR)) {
+      fs.mkdirSync(CACHE_DIR, { recursive: true });
+      console.log(`Created cache directory: ${CACHE_DIR}`);
+    }
+  } catch (error) {
+    console.error(`Error creating cache directory: ${error.message}`);
+  }
+}
+
+// Cache functions
+function getCacheFilePath(key) {
+  // Generate a safe filename from the cache key
+  const safeName = Buffer.from(key).toString('base64').replace(/[/+=]/g, '_');
+  return path.join(CACHE_DIR, `${safeName}.json`);
+}
+
+function getFromCache(key) {
+  if (!CACHE_ENABLED) return null;
+  
+  try {
+    const cacheFile = getCacheFilePath(key);
+    if (!fs.existsSync(cacheFile)) return null;
+    
+    const data = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
+    const now = Date.now();
+    
+    // Check if cache is still valid
+    if (data.timestamp && (now - data.timestamp) < CACHE_TTL) {
+      console.log(`Cache hit for: ${key}`);
+      return data.value;
+    }
+    
+    // Cache expired
+    console.log(`Cache expired for: ${key}`);
+    return null;
+  } catch (error) {
+    console.error(`Cache read error for ${key}: ${error.message}`);
+    return null;
+  }
+}
+
+function saveToCache(key, value) {
+  if (!CACHE_ENABLED) return;
+  
+  try {
+    const cacheFile = getCacheFilePath(key);
+    const data = {
+      timestamp: Date.now(),
+      value
+    };
+    
+    fs.writeFileSync(cacheFile, JSON.stringify(data), 'utf8');
+    console.log(`Cached data for: ${key}`);
+  } catch (error) {
+    console.error(`Cache write error for ${key}: ${error.message}`);
+  }
+}
+
+// Enhanced axios request with retry logic
+async function makeRequest(url, options = {}) {
+  let lastError = null;
+  
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      if (attempt > 1) {
+        console.log(`Retry attempt ${attempt} for: ${url}`);
+      }
+      
+      const response = await axios({
+        url,
+        ...options,
+        httpsAgent,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+          ...(options.headers || {})
+        }
+      });
+      
+      return response;
+    } catch (error) {
+      lastError = error;
+      console.error(`Request error (attempt ${attempt}/${MAX_RETRIES}): ${error.message}`);
+      
+      // If this is a server error (5xx), or network error, retry
+      const shouldRetry = !error.response || error.response.status >= 500;
+      if (!shouldRetry || attempt === MAX_RETRIES) break;
+      
+      // Wait before retrying (exponential backoff)
+      const delay = Math.min(1000 * Math.pow(2, attempt - 1), 10000);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+  
+  throw lastError || new Error(`Failed after ${MAX_RETRIES} attempts`);
+}
+
+// Function to check if timataka.net is accessible
+async function checkTimataka() {
+  // Use cache to avoid checking too frequently
+  const cacheKey = 'timataka_access_check';
+  const cachedResult = getFromCache(cacheKey);
+  if (cachedResult !== null) {
+    timatakaAccessible = cachedResult;
+    return cachedResult;
+  }
+  
+  if (!timatakaAccessible) {
+    console.log('Previously detected timataka.net was not accessible, using mock data');
+    // Still try again after a period to see if it's come back online
+    const lastCheck = getFromCache('timataka_last_failed_check');
+    const now = Date.now();
+    if (lastCheck && (now - lastCheck.timestamp) < 300000) { // 5 minutes
+      return false;
+    }
+    console.log('Trying again to see if timataka.net is now accessible...');
+  }
+  
+  try {
+    await makeRequest(BASE_URL, { timeout: 5000 });
+    timatakaAccessible = true;
+    saveToCache(cacheKey, true);
+    console.log('Successfully connected to timataka.net');
+    return true;
+  } catch (error) {
+    console.log('Cannot access timataka.net, will use mock data:', error.message);
+    timatakaAccessible = false;
+    saveToCache(cacheKey, false);
+    saveToCache('timataka_last_failed_check', { timestamp: Date.now() });
+    return false;
+  }
+}
 
 /**
  * Get list of events from timataka.net
@@ -23,16 +175,24 @@ const USE_MOCK_DATA = process.env.USE_MOCK_DATA !== 'false' && (process.env.USE_
  * @returns {Promise<Array>} Array of event information
  */
 async function getEvents(limit = 10) {
-  // If using mock data, return mock events
-  if (USE_MOCK_DATA) {
+  // If using mock data or timataka is not accessible, return mock events
+  if (USE_MOCK_DATA || !(await checkTimataka())) {
     console.log('Using mock event data instead of scraping');
     return mockEvents.slice(0, limit);
   }
   
   console.log('Fetching real events from timataka.net');
 
+  // Check cache first
+  const cacheKey = `events_limit${limit}`;
+  const cachedEvents = getFromCache(cacheKey);
+  if (cachedEvents) {
+    console.log('Using cached event data');
+    return cachedEvents;
+  }
+
   try {
-    const response = await axios.get(BASE_URL);
+    const response = await makeRequest(BASE_URL);
     const html = response.data;
     const $ = cheerio.load(html);
     
@@ -107,6 +267,8 @@ async function getEvents(limit = 10) {
       });
     }
     
+    // Save to cache before returning
+    saveToCache(cacheKey, events);
     return events;
   } catch (error) {
     console.error('Error getting events:', error);
@@ -124,8 +286,8 @@ async function getEvents(limit = 10) {
  * @returns {Promise<Array>} Array of race information
  */
 async function getLatestRaces(limit = 10, eventId = null) {
-  // If using mock data, return mock races
-  if (USE_MOCK_DATA) {
+  // If using mock data or timataka is not accessible, return mock races
+  if (USE_MOCK_DATA || !(await checkTimataka())) {
     console.log('Using mock race data instead of scraping');
     if (eventId) {
       return mockRaces.filter(race => race.eventId === eventId).slice(0, limit);
@@ -278,8 +440,8 @@ async function getRaceCategories(raceId) {
  * @returns {Promise<Array>} Array of race results
  */
 async function scrapeRaceResults(raceId = '', categoryId = '') {
-  // If using mock data, return mock race results filtered by race ID if provided
-  if (USE_MOCK_DATA) {
+  // If using mock data or timataka is not accessible, return mock race results
+  if (USE_MOCK_DATA || !(await checkTimataka())) {
     console.log('Using mock race results data');
     if (raceId) {
       return mockRaceResults.filter(result => result.raceId === raceId);
@@ -289,6 +451,13 @@ async function scrapeRaceResults(raceId = '', categoryId = '') {
   
   console.log(`Fetching real race results for ${raceId || 'latest race'}`);
   
+  // Check cache first
+  const cacheKey = `race_results_${raceId}_${categoryId}`;
+  const cachedResults = getFromCache(cacheKey);
+  if (cachedResults) {
+    console.log(`Using cached race results for ${raceId || 'latest race'}`);
+    return cachedResults;
+  }
   
   try {
     // If no specific race is provided, get the latest race
@@ -318,7 +487,7 @@ async function scrapeRaceResults(raceId = '', categoryId = '') {
       }
     }
     
-    const response = await axios.get(raceUrl);
+    const response = await makeRequest(raceUrl);
     const html = response.data;
     const $ = cheerio.load(html);
     
@@ -428,6 +597,12 @@ async function scrapeRaceResults(raceId = '', categoryId = '') {
       });
     }
     
+    // Save to cache if we found any results
+    if (results.length > 0) {
+      saveToCache(cacheKey, results);
+      console.log(`Saved ${results.length} race results to cache for ${raceId || 'latest race'}`);
+    }
+    
     return results;
   } catch (error) {
     console.error('Error scraping race results:', error);
@@ -448,8 +623,8 @@ async function scrapeRaceResults(raceId = '', categoryId = '') {
  * @returns {Promise<Object>} Contestant details
  */
 async function scrapeContestantDetails(contestantId, raceId = '') {
-  // If using mock data, return mock contestant details
-  if (USE_MOCK_DATA) {
+  // If using mock data or timataka is not accessible, return mock contestant details
+  if (USE_MOCK_DATA || !(await checkTimataka())) {
     console.log('Using mock contestant details data');
     const contestant = getMockContestantById(contestantId);
     if (contestant) {
@@ -471,6 +646,14 @@ async function scrapeContestantDetails(contestantId, raceId = '') {
   }
   
   console.log(`Fetching real contestant details for ID ${contestantId}`);
+  
+  // Check cache first
+  const cacheKey = `contestant_details_${contestantId}_${raceId}`;
+  const cachedDetails = getFromCache(cacheKey);
+  if (cachedDetails) {
+    console.log(`Using cached details for contestant ${contestantId}`);
+    return cachedDetails;
+  }
   
 
   try {
@@ -500,7 +683,7 @@ async function scrapeContestantDetails(contestantId, raceId = '') {
     } else {
       // This is a real contestant ID
       detailsUrl = `${BASE_URL}/participant/?participant=${contestantId}`;
-      const response = await axios.get(detailsUrl);
+      const response = await makeRequest(detailsUrl);
       const html = response.data;
       const $ = cheerio.load(html);
       
@@ -556,6 +739,9 @@ async function scrapeContestantDetails(contestantId, raceId = '') {
         status: finalTime ? 'Finished' : (timeSplits.length > 0 ? 'In progress' : 'Not started')
       };
       
+      // Save to cache
+      saveToCache(cacheKey, details);
+      
       return details;
     }
   } catch (error) {
@@ -591,8 +777,12 @@ async function scrapeContestantDetails(contestantId, raceId = '') {
  * @returns {Promise<Array>} Array of matching contestants
  */
 async function searchContestants(name) {
-  // If using mock data, search through mock race results
-  if (USE_MOCK_DATA) {
+  if (!name) {
+    return [];
+  }
+  
+  // If using mock data or timataka is not accessible, use the mock search function
+  if (USE_MOCK_DATA || !(await checkTimataka())) {
     console.log('Using mock data for contestant search');
     return searchMockContestants(name);
   }

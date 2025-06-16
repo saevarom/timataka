@@ -6,7 +6,7 @@ A web application that scrapes race results from [timataka.net](https://timataka
 >
 > **Real Data:** See [REAL-DATA.md](./REAL-DATA.md) for instructions on using real data from timataka.net instead of mock data.
 >
-> **Update (June 2025):** Improved handling of real data with better fallback mechanisms and user feedback when real data doesn't contain all information.
+> **Update (June 2025):** Improved handling of real data with better fallback mechanisms, user feedback when real data doesn't contain all information, and a new caching system to improve performance and reliability.
 
 ## New Features in Detail
 
@@ -42,6 +42,10 @@ The search feature has been enhanced to:
 - Get live updates on contestant progress through time splits (refreshed every 30 seconds)
 - Responsive design for desktop and mobile with optimized table views
 - Error resilient data scraping with fallback to mock data
+- Smart caching system that improves performance and reliability
+- Automatic recovery from connection issues or when timataka.net is unavailable
+- Enhanced error messages with helpful troubleshooting suggestions
+- Diagnostics and monitoring tools for data source and cache status
 - Pagination for large result sets
 
 ## Architecture

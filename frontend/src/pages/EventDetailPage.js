@@ -88,6 +88,18 @@ function EventDetailPage() {
         {racesError && (
           <Alert severity="error" sx={{ mb: 2 }}>
             Failed to load races: {racesError.message}
+            {racesError.response?.status === 404 && (
+              <Box sx={{ mt: 1 }}>
+                <Typography variant="body2">
+                  This event might not be available from timataka.net. You can:
+                </Typography>
+                <ul>
+                  <li>Try again later</li>
+                  <li>Switch to mock data using the toggle button at the top</li>
+                  <li>Run diagnostic tool: <code>./timataka-diagnostics.sh</code></li>
+                </ul>
+              </Box>
+            )}
           </Alert>
         )}
 

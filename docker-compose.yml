@@ -19,9 +19,11 @@ services:
     volumes:
       - ./backend:/app
       - /app/node_modules
+      - ./data:/app/data
     environment:
       - NODE_ENV=development
       - USE_MOCK_DATA=false
+      - CACHE_ENABLED=true
     command: npm run dev
 
   nginx:

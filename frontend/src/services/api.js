@@ -33,10 +33,40 @@ export const fetchEvents = async () => {
 export const fetchRacesByEvent = async (eventId) => {
   try {
     const response = await api.get(`/races?eventId=${eventId}`);
+    
+    // Check if we got an empty array but were expecting data
+    if (Array.isArray(response.data) && response.data.length === 0) {
+      console.warn(`No races found for event ${eventId}. This might indicate an issue with the data source.`);
+    }
+    
     return response.data;
   } catch (error) {
     console.error(`Error fetching races for event ${eventId}:`, error);
-    throw new Error(error.response?.data?.error || 'Failed to fetch races for event');
+    
+    // Enhanced error info
+    let errorMessage = 'Failed to fetch races for this event';
+    
+    if (error.response) {
+      if (error.response.status === 404) {
+        errorMessage = `Event not found or unavailable from the current data source`;
+      } else if (error.response.status === 500) {
+        errorMessage = `Server error while fetching races. The data might not be available with the current settings.`;
+      }
+      
+      // Include any specific error message from the server if available
+      if (error.response.data?.error) {
+        errorMessage += `: ${error.response.data.error}`;
+      }
+    } else if (error.request) {
+      errorMessage = `Network error: Unable to reach the server. Please check your connection.`;
+    }
+    
+    // Preserve the original error and response for component-level handling
+    const enhancedError = new Error(errorMessage);
+    enhancedError.originalError = error;
+    enhancedError.response = error.response;
+    
+    throw enhancedError;
   }
 };
 

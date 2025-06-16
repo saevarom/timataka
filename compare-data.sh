@@ -21,7 +21,7 @@ if ! docker info &>/dev/null; then
 fi
 
 # Check if backend container is running
-if ! docker ps | grep -q "timataka_backend"; then
+if ! docker ps | grep -q "timataka-backend"; then
   echo -e "${RED}Backend container is not running. Please start it with 'docker compose up -d'.${NC}"
   exit 1
 fi
@@ -41,7 +41,7 @@ get_data() {
   fi
   
   # Run the command and capture output
-  local result=$(docker exec -e $env timataka_backend node -e "
+  local result=$(docker exec -e $env timataka-backend-1 node -e "
     const axios = require('axios');
     axios.get('http://localhost:4000${endpoint}').then(response => {
       if (Array.isArray(response.data)) {

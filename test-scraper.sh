@@ -5,10 +5,10 @@ echo "===================================="
 echo "This script will test the scraper's ability to extract birth years"
 echo
 
-if [ -z "$(docker ps -q -f name=timataka_backend)" ]; then
+if [ -z "$(docker ps -q -f name=timataka-backend)" ]; then
   echo "Running test outside Docker container..."
   cd backend && NODE_ENV=development USE_MOCK_DATA=false node src/tests/verify-scraper.js
 else
   echo "Running test using Docker container..."
-  docker compose exec backend node src/tests/verify-scraper.js
+  docker compose exec -e USE_MOCK_DATA=false backend node src/tests/verify-scraper.js
 fi

@@ -1,10 +1,13 @@
 import React from 'react';
 import { Typography, Paper, Container, Grid, Button } from '@mui/material';
 import { Link } from 'react-router-dom';
+import DataSourceInfo from '../components/DataSourceInfo';
 
 function HomePage() {
   return (
     <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
+      <DataSourceInfo />
+      
       <Paper sx={{ 
         p: 4, 
         display: 'flex', 

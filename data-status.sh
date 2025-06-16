@@ -36,11 +36,11 @@ echo -e "\n${BOLD}Container Status${NC}"
 echo "================"
 
 if command -v docker &> /dev/null; then
-  if docker ps | grep -q "timataka_backend"; then
+  if docker ps | grep -q "timataka-backend"; then
     echo -e "${GREEN}Backend container is running.${NC}"
     
     # Check if backend needs restart after config change
-    CONTAINER_ENV=$(docker exec timataka_backend printenv USE_MOCK_DATA 2>/dev/null || echo "unknown")
+    CONTAINER_ENV=$(docker exec timataka-backend-1 printenv USE_MOCK_DATA 2>/dev/null || echo "unknown")
     
     if [ "$CONTAINER_ENV" != "$CURRENT_SETTING" ] && [ "$CONTAINER_ENV" != "unknown" ]; then
       echo -e "${RED}Warning: Container configuration differs from docker-compose.yml${NC}"

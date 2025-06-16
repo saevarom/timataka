@@ -29,13 +29,17 @@ fi
 
 # Check current data source setting
 CURRENT_SETTING=$(grep "USE_MOCK_DATA=" docker-compose.yml | cut -d= -f2)
+CACHE_SETTING=$(grep "CACHE_ENABLED=" docker-compose.yml | cut -d= -f2 || echo "true")
 DOCKER_SETTING=$(docker exec timataka-backend-1 printenv USE_MOCK_DATA 2>/dev/null || echo "unknown")
+DOCKER_CACHE_SETTING=$(docker exec timataka-backend-1 printenv CACHE_ENABLED 2>/dev/null || echo "true")
 NODE_ENV=$(docker exec timataka-backend-1 printenv NODE_ENV 2>/dev/null || echo "unknown")
 
 echo -e "${BOLD}Current Configuration${NC}"
 echo "====================="
 echo -e "docker-compose.yml setting: USE_MOCK_DATA=${BLUE}${CURRENT_SETTING}${NC}"
+echo -e "docker-compose.yml setting: CACHE_ENABLED=${BLUE}${CACHE_SETTING}${NC}"
 echo -e "Container environment: USE_MOCK_DATA=${BLUE}${DOCKER_SETTING}${NC}"
+echo -e "Container environment: CACHE_ENABLED=${BLUE}${DOCKER_CACHE_SETTING}${NC}"
 echo -e "Container NODE_ENV: ${BLUE}${NODE_ENV}${NC}"
 
 # Determine actual data source based on code logic
@@ -130,6 +134,32 @@ if [ "$DOCKER_SETTING" = "false" ]; then
     echo "   docker compose restart backend"
   else
     echo -e "${GREEN}No messages about empty results detected in recent logs.${NC}"
+  fi
+fi
+
+echo
+echo -e "${BOLD}Cache Status${NC}"
+echo "=============="
+CACHE_HITS=$(docker logs timataka-backend-1 2>&1 | grep -i "Cache hit for" | wc -l)
+CACHE_MISSES=$(docker logs timataka-backend-1 2>&1 | grep -i "Cache expired for" | wc -l)
+CACHE_SAVES=$(docker logs timataka-backend-1 2>&1 | grep -i "Cached data for" | wc -l)
+
+if [ "$DOCKER_CACHE_SETTING" = "false" ]; then
+  echo -e "${YELLOW}Cache is disabled in the container.${NC}"
+else
+  echo -e "Cache statistics from logs:"
+  echo -e "  - ${GREEN}$CACHE_HITS cache hits${NC}"
+  echo -e "  - ${YELLOW}$CACHE_MISSES cache misses${NC}"
+  echo -e "  - ${BLUE}$CACHE_SAVES cache saves${NC}"
+  
+  # Check if cache directory exists and has files
+  CACHE_DIR_EXISTS=$(docker exec timataka-backend-1 test -d /app/data/cache && echo "yes" || echo "no")
+  
+  if [ "$CACHE_DIR_EXISTS" = "yes" ]; then
+    CACHE_FILES=$(docker exec timataka-backend-1 find /app/data/cache -type f | wc -l)
+    echo -e "  - Cache directory contains ${BLUE}$CACHE_FILES files${NC}"
+  else
+    echo -e "  - ${YELLOW}Cache directory does not exist yet${NC}"
   fi
 fi
 

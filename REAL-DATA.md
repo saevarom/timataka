@@ -146,3 +146,43 @@ This tool helps identify structural differences between mock data and real data,
 ## Implementation Details
 
 The scraper checks the `USE_MOCK_DATA` environment variable to decide whether to use mock data or fetch from timataka.net. When set to `false`, it performs real HTTP requests to timataka.net to scrape race results, contestant details, and event information.
+
+### Cache System
+
+To improve performance and reduce dependency on timataka.net, the system implements a caching mechanism:
+
+- Successful responses from timataka.net are cached locally for 1 hour
+- If timataka.net becomes unavailable, cached data will be used when possible
+- This improves reliability and performance when using real data
+
+The cache can be controlled with the `CACHE_ENABLED` environment variable:
+
+```yaml
+environment:
+  - CACHE_ENABLED=true  # Enable cache (default)
+  # or
+  - CACHE_ENABLED=false # Disable cache
+```
+
+#### Cache Tools and Monitoring
+
+We've created tools to help you manage and monitor the cache:
+
+1. The main diagnostics tool includes cache statistics:
+   ```bash
+   ./timataka-diagnostics.sh
+   ```
+
+2. There's a dedicated cache statistics tool:
+   ```bash
+   ./cache-stats.sh
+   ```
+   
+3. Cache data is stored in the `./data/cache` directory, which is mounted as a volume in the container.
+
+4. If you want to clear the cache, you can remove the cache files:
+   ```bash
+   rm -rf ./data/cache/*
+   ```
+   
+The cache significantly improves performance after the first request and ensures that your application remains functional even if timataka.net is temporarily unavailable.
