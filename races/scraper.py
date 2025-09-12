@@ -246,7 +246,12 @@ class TimatakaScraper:
         """Extract race categories from an event page (different from results page)"""
         race_categories = []
         
-        # Look for different patterns that might indicate multiple races
+        # First check for the alternative format with result links and race IDs
+        detailed_races = self._extract_races_from_result_links(soup, main_race_name, location, source_url)
+        if detailed_races:
+            return detailed_races
+        
+        # Fall back to the original pattern matching approach
         # Pattern 1: Look for distance information in the page content
         content_text = soup.get_text().lower()
         
@@ -282,6 +287,108 @@ class TimatakaScraper:
                 race_categories.append(race_info)
         
         return race_categories
+    
+    def _extract_races_from_result_links(self, soup: BeautifulSoup, main_race_name: str, 
+                                       location: str, source_url: str) -> List[Dict]:
+        """
+        Extract races from pages that have result links with race IDs.
+        This handles the alternative format like tindahlaup2019.
+        """
+        race_categories = []
+        
+        # Look for result links with race IDs
+        links = soup.find_all('a', href=True)
+        race_links = [link for link in links if 'urslit' in link.get('href', '') and 'race=' in link.get('href', '')]
+        
+        if not race_links:
+            return []
+        
+        # Group links by race ID and extract race information
+        race_data = {}
+        for link in race_links:
+            href = link.get('href', '')
+            
+            # Extract race ID from URL
+            race_match = re.search(r'race=(\d+)', href)
+            if race_match:
+                race_id = race_match.group(1)
+                if race_id not in race_data:
+                    race_data[race_id] = href
+        
+        # For each unique race ID, find the corresponding race name and distance
+        base_date = self._extract_race_date_from_page(soup)
+        
+        # Look for headings that might describe the races
+        headings = soup.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
+        
+        # Try to match race IDs with race descriptions
+        race_descriptions = {}
+        for heading in headings:
+            text = heading.get_text().strip()
+            
+            # Look for patterns like "5 tindar (35 km)" or similar
+            distance_match = re.search(r'(\d+\.?\d*)\s?(km|kílómetr)', text, re.IGNORECASE)
+            if distance_match and len(text) > 5:  # Meaningful heading
+                # This heading contains distance info - it's likely a race description
+                distance = float(distance_match.group(1))
+                race_descriptions[text] = distance
+        
+        # If we found race descriptions with distances, create races
+        if race_descriptions:
+            race_id_counter = 0
+            for description, distance in race_descriptions.items():
+                race_id_counter += 1
+                
+                # Determine race type based on distance
+                race_type = self._determine_race_type_from_distance(distance)
+                
+                race_info = {
+                    'name': f"{main_race_name} - {description}",
+                    'race_type': race_type,
+                    'date': base_date,
+                    'location': location,
+                    'distance_km': distance,
+                    'elevation_gain_m': 0,
+                    'organizer': 'Tímataka',
+                    'currency': 'ISK',
+                    'description': f"Race description: {description}",
+                    'source_url': source_url
+                }
+                race_categories.append(race_info)
+        
+        # If we couldn't extract specific race info but found race IDs, create generic races
+        elif race_data:
+            for race_id, href in race_data.items():
+                race_info = {
+                    'name': f"{main_race_name} - Race {race_id}",
+                    'race_type': 'other',
+                    'date': base_date,
+                    'location': location,
+                    'distance_km': 0.0,
+                    'elevation_gain_m': 0,
+                    'organizer': 'Tímataka',
+                    'currency': 'ISK',
+                    'description': f"Race with ID {race_id}",
+                    'source_url': source_url
+                }
+                race_categories.append(race_info)
+        
+        return race_categories
+    
+    def _determine_race_type_from_distance(self, distance_km: float) -> str:
+        """Determine race type based on distance in kilometers"""
+        if distance_km >= 42:
+            return 'marathon'
+        elif distance_km >= 21:
+            return 'half_marathon'
+        elif distance_km >= 15:
+            return 'other'  # Long distance but not quite half marathon
+        elif distance_km >= 9:
+            return '10k'
+        elif distance_km >= 4:
+            return '5k'
+        else:
+            return 'other'
     
     def _extract_race_date_from_page(self, soup: BeautifulSoup) -> Optional[datetime]:
         """Extract race date from event page content"""
