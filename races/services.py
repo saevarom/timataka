@@ -374,8 +374,12 @@ class ScrapingService:
             Normalized URL that points to results
         """
         # If URL already contains /urslit/ or has race parameters, don't modify it
-        if '/urslit/' in url or '/urslit' in url or 'race=' in url:
+        if '/urslit/' in url or 'race=' in url:
             return url
+        
+        # If URL ends with /urslit (without trailing slash), add trailing slash
+        if url.endswith('/urslit'):
+            return f"{url}/"
         
         # For simple event pages, append /urslit/ to make them results URLs
         if url.endswith('/'):

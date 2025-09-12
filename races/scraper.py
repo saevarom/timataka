@@ -164,9 +164,10 @@ class TimatakaScraper:
             TimatakaScrapingError: If scraping fails or data is invalid
         """
         try:
-            # Check if this URL is already a results URL (contains /urslit/ and race parameters)
+            # Check if this URL is already a direct results URL with race parameters
+            # (This distinguishes between normalized event pages and actual results URLs)
             if '/urslit/' in event_url and 'race=' in event_url:
-                # This is a results URL that needs to be treated as a single race
+                # This is a direct results URL that needs to be treated as a single race
                 return self._handle_direct_results_url(event_url)
             
             # Fetch the event page
@@ -315,7 +316,8 @@ class TimatakaScraper:
         
         # Look for result links with race IDs
         links = soup.find_all('a', href=True)
-        race_links = [link for link in links if 'urslit' in link.get('href', '') and 'race=' in link.get('href', '')]
+        # Look for links that contain race= parameter (they might be relative URLs like ?race=1)
+        race_links = [link for link in links if 'race=' in link.get('href', '')]
         
         if not race_links:
             return []
