@@ -1,6 +1,8 @@
-from ninja import Router
+from ninja import Router, File
+from ninja.files import UploadedFile
 from django.shortcuts import get_object_or_404
 from django.db.models import Q
+from django.http import JsonResponse
 from typing import List, Optional
 from datetime import date
 
@@ -8,10 +10,106 @@ from .models import Race, Result, Split
 from .schemas import (
     RaceSchema, RaceCreateSchema, RaceListFilterSchema,
     ResultSchema, ResultCreateSchema,
-    SplitSchema, SplitCreateSchema
+    SplitSchema, SplitCreateSchema,
+    ScrapingResultSchema, HTMLContentSchema
 )
+from .services import ScrapingService, TimatakaScrapingError
 
 router = Router()
+
+
+@router.post("/scrape", response=ScrapingResultSchema)
+def scrape_html_content(request, payload: HTMLContentSchema):
+    """
+    Scrape race data from Timataka.net HTML content.
+    
+    This endpoint accepts HTML content and extracts race information from it.
+    Optionally saves the races to the database.
+    """
+    try:
+        scraping_service = ScrapingService()
+        
+        # Validate HTML content
+        if not payload.html_content or len(payload.html_content.strip()) < 100:
+            return ScrapingResultSchema(
+                success=False,
+                message="HTML content is too short or empty"
+            )
+        
+        if payload.save_to_db:
+            # Scrape and save to database
+            result = scraping_service.scrape_and_save_races(
+                payload.html_content,
+                payload.source_url,
+                overwrite=payload.overwrite_existing
+            )
+            
+            # Get the recently scraped races for response
+            if result['saved'] > 0 or result['updated'] > 0:
+                recent_races = Race.objects.filter(
+                    source_url=payload.source_url
+                ).order_by('-updated_at')[:result['scraped']]
+                races_data = [RaceSchema.from_orm(race) for race in recent_races]
+            else:
+                races_data = None
+            
+            return ScrapingResultSchema(
+                success=True,
+                message=f"Scraped {result['scraped']} races, saved {result['saved']}, updated {result['updated']}, skipped {result['skipped']}, errors {result['errors']}",
+                scraped=result['scraped'],
+                saved=result['saved'],
+                updated=result['updated'],
+                skipped=result['skipped'],
+                errors=result['errors'],
+                races=races_data
+            )
+        else:
+            # Just scrape without saving
+            races_data = scraping_service.scrape_races_only(
+                payload.html_content,
+                payload.source_url
+            )
+            
+            # Convert to schema format
+            races_schemas = []
+            for race_data in races_data:
+                # Remove fields not in schema
+                race_data_clean = {k: v for k, v in race_data.items() if k != 'start_time'}
+                # Add required fields for schema
+                race_data_clean.update({
+                    'id': 0,  # Placeholder for non-saved races
+                    'created_at': '2025-01-01T00:00:00Z',
+                    'updated_at': '2025-01-01T00:00:00Z'
+                })
+                races_schemas.append(race_data_clean)
+            
+            return ScrapingResultSchema(
+                success=True,
+                message=f"Successfully scraped {len(races_data)} races (not saved to database)",
+                scraped=len(races_data),
+                races=races_schemas
+            )
+            
+    except TimatakaScrapingError as e:
+        return ScrapingResultSchema(
+            success=False,
+            message=f"Scraping error: {str(e)}"
+        )
+    except Exception as e:
+        return ScrapingResultSchema(
+            success=False,
+            message=f"Unexpected error: {str(e)}"
+        )
+
+
+@router.get("/scrape/supported-types")
+def get_supported_race_types(request):
+    """Get list of supported race types for scraping"""
+    scraping_service = ScrapingService()
+    return {
+        "supported_types": scraping_service.get_supported_race_types(),
+        "description": "Race types that can be automatically detected during scraping"
+    }
 
 
 @router.get("/search", response=List[RaceSchema])

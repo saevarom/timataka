@@ -1,0 +1,150 @@
+from typing import List, Dict, Optional
+import logging
+from .scraper import TimatakaScraper, TimatakaScrapingError
+from .models import Race
+
+logger = logging.getLogger(__name__)
+
+
+class ScrapingService:
+    """
+    Service class for handling race data scraping operations.
+    
+    This service provides high-level methods for scraping race data
+    and integrating it with the database.
+    """
+    
+    def __init__(self):
+        self.scraper = TimatakaScraper()
+    
+    def scrape_and_save_races(self, html_content: str, source_url: str = "", 
+                              overwrite: bool = False) -> Dict[str, int]:
+        """
+        Scrape races from HTML content and save to database.
+        
+        Args:
+            html_content: Raw HTML content from Timataka page
+            source_url: Original URL for reference
+            overwrite: Whether to overwrite existing races
+            
+        Returns:
+            Dict with counts: {'scraped': X, 'saved': Y, 'skipped': Z, 'errors': W}
+        """
+        result = {
+            'scraped': 0,
+            'saved': 0,
+            'skipped': 0,
+            'updated': 0,
+            'errors': 0
+        }
+        
+        try:
+            # Scrape race data
+            races_data = self.scraper.scrape_race_data(html_content, source_url)
+            result['scraped'] = len(races_data)
+            
+            # Save each race to database
+            for race_data in races_data:
+                try:
+                    save_result = self._save_race_to_db(race_data, overwrite)
+                    if save_result == 'saved':
+                        result['saved'] += 1
+                    elif save_result == 'skipped':
+                        result['skipped'] += 1
+                    elif save_result == 'updated':
+                        result['updated'] += 1
+                        
+                except Exception as e:
+                    logger.error(f"Error saving race '{race_data.get('name', 'Unknown')}': {str(e)}")
+                    result['errors'] += 1
+            
+            return result
+            
+        except TimatakaScrapingError as e:
+            logger.error(f"Scraping failed: {str(e)}")
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error in scraping service: {str(e)}")
+            raise TimatakaScrapingError(f"Service error: {str(e)}")
+    
+    def scrape_races_only(self, html_content: str, source_url: str = "") -> List[Dict]:
+        """
+        Scrape races from HTML content without saving to database.
+        
+        Args:
+            html_content: Raw HTML content from Timataka page
+            source_url: Original URL for reference
+            
+        Returns:
+            List of race dictionaries
+        """
+        return self.scraper.scrape_race_data(html_content, source_url)
+    
+    def _save_race_to_db(self, race_data: Dict, overwrite: bool = False) -> str:
+        """
+        Save a single race to database.
+        
+        Args:
+            race_data: Race data dictionary
+            overwrite: Whether to overwrite existing races
+            
+        Returns:
+            String indicating result: 'saved', 'skipped', or 'updated'
+        """
+        # Remove fields that don't belong in the Race model
+        race_data_for_db = race_data.copy()
+        race_data_for_db.pop('start_time', None)
+        
+        # Check if race already exists
+        existing_race = Race.objects.filter(
+            name=race_data_for_db['name'],
+            date=race_data_for_db['date']
+        ).first()
+        
+        if existing_race:
+            if overwrite:
+                # Update existing race
+                for field, value in race_data_for_db.items():
+                    setattr(existing_race, field, value)
+                existing_race.save()
+                logger.info(f"Updated existing race: {existing_race.name}")
+                return 'updated'
+            else:
+                logger.info(f"Race '{race_data_for_db['name']}' already exists, skipping")
+                return 'skipped'
+        else:
+            # Create new race
+            race = Race.objects.create(**race_data_for_db)
+            logger.info(f"Created new race: {race.name}")
+            return 'saved'
+    
+    def validate_html_content(self, html_content: str) -> bool:
+        """
+        Validate if HTML content appears to be from a Timataka page.
+        
+        Args:
+            html_content: Raw HTML content
+            
+        Returns:
+            True if content appears valid for scraping
+        """
+        try:
+            # Basic validation - check for Timataka indicators
+            html_lower = html_content.lower()
+            
+            timataka_indicators = [
+                'timataka.net',
+                'tímataka',
+                'ibox-content',
+                'stats-label'
+            ]
+            
+            return any(indicator in html_lower for indicator in timataka_indicators)
+            
+        except Exception as e:
+            logger.warning(f"Error validating HTML content: {str(e)}")
+            return False
+    
+    def get_supported_race_types(self) -> List[str]:
+        """Get list of supported race types for scraping."""
+        return list(self.scraper.race_type_mapping.values())

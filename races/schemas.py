@@ -102,3 +102,23 @@ class PaginationSchema(Schema):
     next: Optional[str] = None
     previous: Optional[str] = None
     results: List[dict]
+
+
+class ScrapingResultSchema(Schema):
+    """Schema for scraping operation results"""
+    success: bool
+    message: str
+    scraped: int = 0
+    saved: int = 0
+    updated: int = 0
+    skipped: int = 0
+    errors: int = 0
+    races: Optional[List[RaceSchema]] = None
+
+
+class HTMLContentSchema(Schema):
+    """Schema for HTML content input"""
+    html_content: str
+    source_url: Optional[str] = ""
+    save_to_db: bool = False
+    overwrite_existing: bool = False
