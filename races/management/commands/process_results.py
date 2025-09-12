@@ -8,6 +8,7 @@ storing them as Result records with runner information, times, and splits.
 
 import logging
 import requests
+from bs4 import BeautifulSoup
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.utils import timezone
@@ -191,28 +192,88 @@ class Command(BaseCommand):
         """Build the results URL for a race"""
         # Check if race already has a results_url
         if race.results_url:
+            # If the results_url ends with /urslit/ but doesn't have race parameters,
+            # it might be pointing to a directory rather than actual results
+            if (race.results_url.endswith('/urslit/') and 
+                'race=' not in race.results_url and 
+                'cat=' not in race.results_url):
+                # Try to build a proper results URL using the event page
+                return self._build_results_url_from_event_page(race)
             return race.results_url
         
         # Try to build URL from event URL
+        return self._build_results_url_from_event_page(race)
+    
+    def _build_results_url_from_event_page(self, race):
+        """Build the results URL by analyzing the event page"""
         event_url = race.event.url
         
         if not event_url:
             return None
         
-        # Case 1: Event URL already points to results (ends with /urslit/)
-        if '/urslit/' in event_url:
+        # Case 1: Event URL already points to results with parameters
+        if '/urslit/' in event_url and ('race=' in event_url or 'cat=' in event_url):
             return event_url
         
-        # Case 2: Event URL is an event page - need to build results URL
-        # For complex events with multiple races, we need to find the specific race ID
-        
-        # For now, try the simple approach: add /urslit/ to the event URL
-        if event_url.endswith('/'):
-            results_url = event_url + 'urslit/'
-        else:
-            results_url = event_url + '/urslit/'
-        
-        return results_url
+        # Case 2: Event URL is an event page - we need to scrape it to find race links
+        try:
+            # Remove /urslit/ from event URL if it's there (might be incorrectly normalized)
+            clean_event_url = event_url.replace('/urslit/', '/').rstrip('/')
+            if not clean_event_url.endswith('/'):
+                clean_event_url += '/'
+            
+            # Skip if this would create an invalid URL
+            if clean_event_url.count('/urslit/') > 0:
+                logger.warning(f"Skipping URL building for {event_url} - would create invalid URL")
+                return event_url
+            
+            # Fetch the event page to look for race links
+            response = requests.get(clean_event_url, timeout=10)
+            response.raise_for_status()
+            
+            soup = BeautifulSoup(response.content, 'lxml')
+            
+            # Look for race links with parameters
+            links = soup.find_all('a', href=True)
+            race_links = []
+            
+            for link in links:
+                href = link.get('href', '')
+                if 'race=' in href and 'cat=overall' in href:
+                    # Found a race link with overall category
+                    if href.startswith('/'):
+                        # Relative URL - make it absolute
+                        full_url = 'https://timataka.net' + href
+                    elif href.startswith('?'):
+                        # Query parameters only - add to base URL
+                        base_url = clean_event_url.rstrip('/')
+                        full_url = base_url + '/urslit/' + href
+                    elif href.startswith('urslit/'):
+                        # Relative path starting with urslit/
+                        base_url = clean_event_url.rstrip('/')
+                        full_url = base_url + '/' + href
+                    elif href.startswith('http'):
+                        # Already absolute URL
+                        full_url = href
+                    else:
+                        # Other relative URL - add to base
+                        base_url = clean_event_url.rstrip('/')
+                        full_url = base_url + '/' + href
+                    
+                    race_links.append(full_url)
+            
+            # If we found race links, return the first overall results link
+            if race_links:
+                return race_links[0]
+            
+            # No race links found - this might be a simple event page
+            # Return the original event URL (which should point to results)
+            return event_url
+                
+        except Exception as e:
+            logger.error(f"Error building results URL from event page {event_url}: {str(e)}")
+            # Fallback to original URL
+            return event_url
 
     def _fetch_results_page(self, url):
         """Fetch the HTML content of a results page"""

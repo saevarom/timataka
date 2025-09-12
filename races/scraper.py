@@ -1181,8 +1181,23 @@ class TimatakaScraper:
     
     def _find_results_table(self, soup: BeautifulSoup) -> Optional[BeautifulSoup]:
         """Find the main results table in the page"""
-        # Look for table with class 'table table-striped'
+        # Look for table with class 'table table-striped' (common format)
         table = soup.find('table', class_='table table-striped')
+        if table:
+            return table
+        
+        # Look for table with class 'table table-condensed table-hover' (alternative format)
+        table = soup.find('table', class_='table table-condensed table-hover')
+        if table:
+            return table
+        
+        # Look for any table with 'table' class as fallback
+        table = soup.find('table', class_='table')
+        if table:
+            return table
+        
+        # Last resort: any table
+        table = soup.find('table')
         return table
     
     def _extract_table_headers(self, table: BeautifulSoup) -> List[str]:
@@ -1195,24 +1210,26 @@ class TimatakaScraper:
                 for th in header_row.find_all('th'):
                     header_text = th.get_text().strip().lower()
                     # Map common headers to standardized names
-                    if header_text in ['rank', 'place']:
+                    if header_text in ['rank', 'place', '#']:
                         headers.append('rank')
                     elif header_text in ['bib', 'number']:
                         headers.append('bib')
                     elif header_text in ['name', 'participant']:
                         headers.append('name')
-                    elif header_text in ['year', 'birth year']:
+                    elif header_text in ['year', 'birth year', 'age']:
                         headers.append('year')
                     elif header_text in ['club', 'team']:
                         headers.append('club')
                     elif header_text in ['split', 'splits']:
                         headers.append('split')
-                    elif header_text in ['time', 'finish time']:
+                    elif header_text in ['time', 'finish time', 'final']:
                         headers.append('time')
                     elif header_text in ['behind', 'time behind']:
                         headers.append('behind')
                     elif header_text in ['chiptime', 'chip time']:
                         headers.append('chiptime')
+                    elif header_text in ['pace']:
+                        headers.append('pace')
                     else:
                         headers.append(header_text if header_text else 'unknown')
         return headers
@@ -1242,9 +1259,11 @@ class TimatakaScraper:
                     elif header == 'name':
                         result_data['name'] = cell_text
                     elif header == 'year':
-                        result_data['year'] = self._parse_year(cell_text)
+                        result_data['year'] = self._parse_year_or_age(cell_text)
                     elif header == 'club':
                         result_data['club'] = cell_text
+                    elif header == 'pace':
+                        result_data['pace'] = cell_text
                     elif header == 'split':
                         result_data['splits'] = self._parse_splits(cells[i])
                     elif header == 'time':
@@ -1269,6 +1288,24 @@ class TimatakaScraper:
             return int(text.strip())
         except ValueError:
             return None
+    
+    def _parse_year_or_age(self, text: str) -> Optional[int]:
+        """Parse birth year or age, converting age to birth year if needed"""
+        if not text or text == '':
+            return None
+        try:
+            value = int(text.strip())
+            if 1900 <= value <= 2020:
+                # This looks like a birth year
+                return value
+            elif 10 <= value <= 100:
+                # This looks like an age, convert to birth year
+                from datetime import datetime
+                current_year = datetime.now().year
+                return current_year - value
+        except ValueError:
+            pass
+        return None
     
     def _parse_year(self, text: str) -> Optional[int]:
         """Parse birth year"""

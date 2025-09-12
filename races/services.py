@@ -1,6 +1,8 @@
 from typing import List, Dict, Optional
 import logging
 from datetime import datetime
+import requests
+from bs4 import BeautifulSoup
 from django.db import transaction
 from .scraper import TimatakaScraper, TimatakaScrapingError
 from .models import Race, Runner, Result, Split, Event
@@ -359,9 +361,12 @@ class ScrapingService:
     
     def _normalize_event_url(self, url: str) -> str:
         """
-        Normalize event URLs to ensure they point to results pages when appropriate.
+        Normalize event URLs to ensure they point to the correct page type.
         
-        For simple event pages (like https://timataka.net/gamlarshlaup2013/), 
+        For complex event pages that contain race links (like tindahlaup2025),
+        keep them as event pages since they contain navigation to specific race results.
+        
+        For simple event pages that don't contain race links (like gamlarshlaup2013), 
         append /urslit/ to make them results URLs.
         
         For URLs that are already results URLs (contain /urslit/ or have race parameters),
@@ -371,7 +376,7 @@ class ScrapingService:
             url: Original event URL
             
         Returns:
-            Normalized URL that points to results
+            Normalized URL that points to the appropriate page
         """
         # If URL already contains /urslit/ or has race parameters, don't modify it
         if '/urslit/' in url or 'race=' in url:
@@ -380,6 +385,23 @@ class ScrapingService:
         # If URL ends with /urslit (without trailing slash), add trailing slash
         if url.endswith('/urslit'):
             return f"{url}/"
+        
+        # Check if this is a complex event page by looking for race links
+        try:
+            response = requests.get(url, timeout=10)
+            if response.status_code == 200:
+                soup = BeautifulSoup(response.content, 'lxml')
+                
+                # Look for race links with parameters
+                links = soup.find_all('a', href=True)
+                has_race_links = any('race=' in link.get('href', '') for link in links)
+                
+                if has_race_links:
+                    # This is a complex event page with race links - keep as event page
+                    return url
+        except Exception:
+            # If we can't check the page, fall back to simple normalization
+            pass
         
         # For simple event pages, append /urslit/ to make them results URLs
         if url.endswith('/'):
