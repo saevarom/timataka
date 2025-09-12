@@ -214,6 +214,15 @@ class TimatakaScraper:
             
             # For event pages, we often just have one main race/event
             # Try to extract more detailed information
+            
+            # Build results URL for single race events
+            results_url = source_url
+            if not source_url.endswith('/urslit/'):
+                if source_url.endswith('/'):
+                    results_url = f"{source_url}urslit/"
+                else:
+                    results_url = f"{source_url}/urslit/"
+            
             race_info = {
                 'name': main_race_name,
                 'race_type': self._determine_race_type_from_name(main_race_name),
@@ -224,7 +233,8 @@ class TimatakaScraper:
                 'organizer': 'Tímataka',
                 'currency': 'ISK',
                 'description': self._extract_race_description(soup),
-                'source_url': source_url
+                'source_url': source_url,
+                'results_url': results_url
             }
             
             # Try to find multiple race categories if they exist on the event page
@@ -272,6 +282,14 @@ class TimatakaScraper:
         # If we found specific distances, create separate races for each
         if found_distances:
             for race_type, distance in found_distances:
+                # For simple event pages, try to build a results URL
+                results_url = source_url
+                if not source_url.endswith('/urslit/'):
+                    if source_url.endswith('/'):
+                        results_url = f"{source_url}urslit/"
+                    else:
+                        results_url = f"{source_url}/urslit/"
+                
                 race_info = {
                     'name': f"{main_race_name} - {race_type.replace('_', ' ').title()}",
                     'race_type': race_type,
@@ -282,7 +300,8 @@ class TimatakaScraper:
                     'organizer': 'Tímataka',
                     'currency': 'ISK',
                     'description': self._extract_race_description(soup),
-                    'source_url': source_url
+                    'source_url': source_url,
+                    'results_url': results_url
                 }
                 race_categories.append(race_info)
         
@@ -335,12 +354,23 @@ class TimatakaScraper:
         
         # If we found race descriptions with distances, create races
         if race_descriptions:
-            race_id_counter = 0
-            for description, distance in race_descriptions.items():
-                race_id_counter += 1
-                
+            # We need to match race descriptions to race IDs
+            # For now, we'll iterate through both and try to match them by order
+            race_ids = list(race_data.keys())
+            descriptions = list(race_descriptions.items())
+            
+            for i, (description, distance) in enumerate(descriptions):
                 # Determine race type based on distance
                 race_type = self._determine_race_type_from_distance(distance)
+                
+                # Build results URL with race ID if available
+                results_url = source_url
+                if i < len(race_ids) and race_data:
+                    race_id = race_ids[i]
+                    href = race_data[race_id]
+                    # Build full results URL by appending the relative href
+                    base_url = source_url.rstrip('/')
+                    results_url = f"{base_url}/{href}"
                 
                 race_info = {
                     'name': f"{main_race_name} - {description}",
@@ -352,13 +382,18 @@ class TimatakaScraper:
                     'organizer': 'Tímataka',
                     'currency': 'ISK',
                     'description': f"Race description: {description}",
-                    'source_url': source_url
+                    'source_url': source_url,
+                    'results_url': results_url
                 }
                 race_categories.append(race_info)
         
         # If we couldn't extract specific race info but found race IDs, create generic races
         elif race_data:
             for race_id, href in race_data.items():
+                # Build full results URL by appending the relative href
+                base_url = source_url.rstrip('/')
+                results_url = f"{base_url}/{href}"
+                
                 race_info = {
                     'name': f"{main_race_name} - Race {race_id}",
                     'race_type': 'other',
@@ -369,7 +404,8 @@ class TimatakaScraper:
                     'organizer': 'Tímataka',
                     'currency': 'ISK',
                     'description': f"Race with ID {race_id}",
-                    'source_url': source_url
+                    'source_url': source_url,
+                    'results_url': results_url
                 }
                 race_categories.append(race_info)
         

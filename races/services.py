@@ -460,7 +460,8 @@ class ScrapingService:
             elevation_gain_m=elevation_gain_m,
             organizer=organizer,
             currency=race_data.get('currency', 'ISK'),
-            source_url=event.url,  # Link back to the event URL
+            source_url=race_data.get('source_url', event.url),  # Use scraped source URL if available
+            results_url=race_data.get('results_url', ''),  # Set the results URL from scraped data
         )
         
         return race
