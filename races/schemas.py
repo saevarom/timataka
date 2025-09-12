@@ -54,9 +54,6 @@ class ResultSchema(Schema):
     club: Optional[str] = None
     finish_time: timedelta
     gun_time: Optional[timedelta] = None
-    overall_place: int
-    gender_place: Optional[int] = None
-    age_group_place: Optional[int] = None
     status: str = "finished"
     created_at: datetime
     updated_at: datetime
@@ -71,9 +68,6 @@ class ResultCreateSchema(Schema):
     club: Optional[str] = None
     finish_time: timedelta
     gun_time: Optional[timedelta] = None
-    overall_place: int
-    gender_place: Optional[int] = None
-    age_group_place: Optional[int] = None
     status: str = "finished"
 
 

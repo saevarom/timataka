@@ -4,7 +4,6 @@ from datetime import datetime
 import requests
 from bs4 import BeautifulSoup
 from django.db import transaction
-from django.db.models import Max
 from .scraper import TimatakaScraper, TimatakaScrapingError
 from .models import Race, Runner, Result, Split, Event
 
@@ -99,19 +98,6 @@ class ScrapingService:
             result_data.get('year')
         )
         
-        # For gender-specific results, use gender_place for ranking within gender
-        # and calculate overall_place to avoid conflicts
-        if gender:
-            gender_place = result_data.get('rank', 0)
-            # Create a unique overall_place by adding offset based on gender and current max
-            existing_max = Result.objects.filter(race=race).aggregate(
-                max_place=Max('overall_place')
-            )['max_place'] or 0
-            overall_place = existing_max + result_data.get('rank', 0)
-        else:
-            gender_place = None
-            overall_place = result_data.get('rank', 0)
-        
         # Create result
         result = Result.objects.create(
             race=race,
@@ -122,8 +108,6 @@ class ScrapingService:
             finish_time=result_data['finish_time'],
             chip_time=result_data.get('chip_time'),
             time_behind=result_data.get('time_behind'),
-            overall_place=overall_place,
-            gender_place=gender_place,
             status='finished'
         )
         

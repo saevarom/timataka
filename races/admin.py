@@ -60,10 +60,10 @@ class RaceAdmin(admin.ModelAdmin):
 
 @admin.register(Result)
 class ResultAdmin(admin.ModelAdmin):
-    list_display = ['get_participant_name', 'race', 'overall_place', 'finish_time', 'status']
+    list_display = ['get_participant_name', 'race', 'finish_time', 'status']
     list_filter = ['status', 'race__date', 'race__race_type']
     search_fields = ['runner__name', 'participant_name', 'club']
-    ordering = ['race', 'overall_place']
+    ordering = ['race', 'finish_time']
     list_per_page = 100  # Limit items per page for performance
     list_select_related = ['race', 'runner']  # Optimize database queries
     

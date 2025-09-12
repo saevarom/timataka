@@ -129,11 +129,6 @@ class Result(models.Model):
     chip_time = models.DurationField(null=True, blank=True, help_text="Chip/net time")
     time_behind = models.DurationField(null=True, blank=True, help_text="Time behind winner")
     
-    # Placement
-    overall_place = models.IntegerField(validators=[MinValueValidator(1)])
-    gender_place = models.IntegerField(null=True, blank=True, validators=[MinValueValidator(1)])
-    age_group_place = models.IntegerField(null=True, blank=True, validators=[MinValueValidator(1)])
-    
     # Status
     STATUS_CHOICES = [
         ('finished', 'Finished'),
@@ -148,18 +143,17 @@ class Result(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     
     class Meta:
-        ordering = ['overall_place']
-        unique_together = ['race', 'overall_place']
+        ordering = ['finish_time']
         indexes = [
-            models.Index(fields=['race', 'overall_place']),
+            models.Index(fields=['race', 'finish_time']),
             models.Index(fields=['participant_name']),
             models.Index(fields=['finish_time']),
         ]
     
     def __str__(self):
         if self.runner:
-            return f"{self.runner.name} - {self.race.name} (#{self.overall_place})"
-        return f"{self.participant_name} - {self.race.name} (#{self.overall_place})"
+            return f"{self.runner.name} - {self.race.name} ({self.finish_time})"
+        return f"{self.participant_name} - {self.race.name} ({self.finish_time})"
 
 
 class Split(models.Model):
