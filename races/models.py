@@ -28,6 +28,39 @@ class Runner(models.Model):
         return self.name
 
 
+class Event(models.Model):
+    """Model representing a racing event (found on timataka.net homepage)"""
+    
+    name = models.CharField(max_length=200, help_text="Event name as found on timataka.net homepage")
+    date = models.DateField(help_text="Event date parsed from homepage")
+    url = models.URLField(unique=True, help_text="URL to the event page on timataka.net")
+    
+    # Processing status
+    STATUS_CHOICES = [
+        ('discovered', 'Discovered'),
+        ('processed', 'Processed'),
+        ('error', 'Error'),
+    ]
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='discovered')
+    last_processed = models.DateTimeField(null=True, blank=True)
+    processing_error = models.TextField(blank=True)
+    
+    # Metadata
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        ordering = ['date']
+        indexes = [
+            models.Index(fields=['date']),
+            models.Index(fields=['status']),
+            models.Index(fields=['url']),
+        ]
+    
+    def __str__(self):
+        return f"{self.name} - {self.date}"
+
+
 class Race(models.Model):
     """Model representing a running race/competition"""
     
@@ -40,6 +73,9 @@ class Race(models.Model):
         ('ultra', 'Ultra Marathon'),
         ('other', 'Other'),
     ]
+    
+    # Link to the event this race belongs to
+    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='races', null=True, blank=True)
     
     name = models.CharField(max_length=200)
     description = models.TextField(blank=True)

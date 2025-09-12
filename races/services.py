@@ -3,7 +3,7 @@ import logging
 from datetime import datetime
 from django.db import transaction
 from .scraper import TimatakaScraper, TimatakaScrapingError
-from .models import Race, Runner, Result, Split
+from .models import Race, Runner, Result, Split, Event
 
 logger = logging.getLogger(__name__)
 
@@ -248,12 +248,12 @@ class ScrapingService:
             logger.info(f"Created new race: {race.name}")
             return 'saved'
     
-    def discover_and_save_races(self, overwrite: bool = False) -> Dict[str, int]:
+    def discover_and_save_events(self, overwrite: bool = False) -> Dict[str, int]:
         """
-        Discover races from timataka.net homepage and save new ones to database.
+        Discover events from timataka.net homepage and save new ones to database.
         
         Args:
-            overwrite: Whether to update existing races (currently not used for discovery)
+            overwrite: Whether to update existing events
             
         Returns:
             Dict with counts: {'discovered': X, 'new': Y, 'existing': Z, 'errors': W}
@@ -267,77 +267,92 @@ class ScrapingService:
         }
         
         try:
-            # Discover races from homepage
-            discovered_races = self.scraper.discover_races_from_homepage()
-            result['discovered'] = len(discovered_races)
+            # Discover events from homepage
+            discovered_events = self.scraper.discover_races_from_homepage()
+            result['discovered'] = len(discovered_events)
             
-            logger.info(f"Discovered {len(discovered_races)} races from timataka.net")
+            logger.info(f"Discovered {len(discovered_events)} events from timataka.net")
             
-            # Process each discovered race
-            for race_info in discovered_races:
+            # Process each discovered event
+            for event_info in discovered_events:
                 try:
-                    # Check if race already exists (by URL)
-                    existing_race = Race.objects.filter(source_url=race_info['url']).first()
+                    # Check if event already exists (by URL)
+                    existing_event = Event.objects.filter(url=event_info['url']).first()
                     
-                    if existing_race:
+                    if existing_event:
                         # Check if we should update the date
-                        placeholder_dates = [
-                            datetime(2021, 1, 31).date(),
-                            datetime(2099, 12, 31).date()
-                        ]
-                        
                         # Convert new date to date object if needed
-                        new_date = race_info['date'].date() if hasattr(race_info['date'], 'date') else race_info['date']
+                        new_date = event_info['date'].date() if hasattr(event_info['date'], 'date') else event_info['date']
                         
                         should_update = False
                         update_reason = ""
                         
-                        # Update if current date is a placeholder
-                        if existing_race.date in placeholder_dates and race_info['date']:
-                            should_update = True
-                            update_reason = "placeholder date"
                         # Update if dates are different and the new date is not a mid-month default (15th)
-                        elif (existing_race.date != new_date and 
+                        if (existing_event.date != new_date and 
                               new_date and 
                               new_date.day != 15):  # 15th suggests mid-month default
                             should_update = True
                             update_reason = "more specific date"
                         # Also update if existing date is mid-month (15th) and new date is different
-                        elif (existing_race.date.day == 15 and 
-                              existing_race.date != new_date and 
+                        elif (existing_event.date.day == 15 and 
+                              existing_event.date != new_date and 
                               new_date):
                             should_update = True
                             update_reason = "replacing mid-month default"
                         
                         if should_update:
-                            old_date = existing_race.date
-                            existing_race.date = new_date
-                            existing_race.save()
+                            old_date = existing_event.date
+                            existing_event.date = new_date
+                            existing_event.save()
                             result['updated'] += 1
-                            logger.info(f"Updated date for '{race_info['name']}' ({update_reason}): {old_date} -> {existing_race.date}")
+                            logger.info(f"Updated date for event '{event_info['name']}' ({update_reason}): {old_date} -> {existing_event.date}")
                         else:
                             result['existing'] += 1
-                            logger.debug(f"Race already exists with current date: {race_info['name']} ({existing_race.date})")
+                            logger.debug(f"Event already exists with current date: {event_info['name']} ({existing_event.date})")
                         continue
                     
-                    # Create new race record
+                    # Create new event record
                     with transaction.atomic():
-                        race = self._create_race_from_discovery(race_info)
+                        event = self._create_event_from_discovery(event_info)
                         result['new'] += 1
-                        logger.info(f"Saved new race: {race.name} ({race.date})")
+                        logger.info(f"Saved new event: {event.name} ({event.date})")
                         
                 except Exception as e:
-                    logger.error(f"Error processing discovered race '{race_info.get('name', 'Unknown')}': {str(e)}")
+                    logger.error(f"Error processing discovered event '{event_info.get('name', 'Unknown')}': {str(e)}")
                     result['errors'] += 1
             
             return result
             
         except TimatakaScrapingError as e:
-            logger.error(f"Race discovery failed: {str(e)}")
+            logger.error(f"Event discovery failed: {str(e)}")
             raise
         except Exception as e:
-            logger.error(f"Unexpected error in race discovery: {str(e)}")
+            logger.error(f"Unexpected error in event discovery: {str(e)}")
             raise TimatakaScrapingError(f"Service error: {str(e)}")
+    
+    def _create_event_from_discovery(self, event_info: Dict) -> Event:
+        """Create an Event object from discovered event information"""
+        # Extract basic information
+        name = event_info['name']
+        event_date = event_info['date']
+        url = event_info['url']
+        
+        # Convert date to date object if needed
+        if event_date is None:
+            # If no date was extracted, use a placeholder far in the future
+            event_date = datetime(2099, 12, 31).date()
+        elif hasattr(event_date, 'date'):
+            event_date = event_date.date()
+        
+        # Create and save the event
+        event = Event.objects.create(
+            name=name,
+            date=event_date,
+            url=url,
+            status='discovered',
+        )
+        
+        return event
     
     def _create_race_from_discovery(self, race_info: Dict) -> Race:
         """Create a Race object from discovered race information"""

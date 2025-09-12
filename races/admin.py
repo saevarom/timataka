@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Race, Result, Split, Runner
+from .models import Race, Result, Split, Runner, Event
 
 
 @admin.register(Runner)
@@ -10,17 +10,29 @@ class RunnerAdmin(admin.ModelAdmin):
     ordering = ['name']
 
 
+@admin.register(Event)
+class EventAdmin(admin.ModelAdmin):
+    list_display = ['name', 'date', 'status', 'last_processed', 'created_at']
+    list_filter = ['status', 'date', 'last_processed']
+    search_fields = ['name', 'url']
+    date_hierarchy = 'date'
+    ordering = ['-date']
+    readonly_fields = ['created_at', 'updated_at']
+    list_per_page = 50
+
+
 @admin.register(Race)
 class RaceAdmin(admin.ModelAdmin):
-    list_display = ['name', 'date', 'race_type', 'location', 'distance_km']
-    list_filter = ['race_type', 'date', 'location']
-    search_fields = ['name', 'location', 'organizer']
+    list_display = ['name', 'event', 'date', 'race_type', 'location', 'distance_km']
+    list_filter = ['race_type', 'date', 'location', 'event__status']
+    search_fields = ['name', 'location', 'organizer', 'event__name']
     date_hierarchy = 'date'
     ordering = ['-date']
     
     # Optimize for large datasets
     list_per_page = 50  # Limit items per page
     actions = ['delete_selected']  # Explicitly define actions
+    list_select_related = ['event']  # Optimize database queries
     
     def get_deleted_objects(self, objs, request):
         """
