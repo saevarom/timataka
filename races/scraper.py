@@ -222,11 +222,14 @@ class TimatakaScraper:
             
             # Build results URL for single race events
             results_url = source_url
-            if not source_url.endswith('/urslit/'):
+            if not source_url.endswith('/urslit/') and not source_url.endswith('/urslit'):
                 if source_url.endswith('/'):
                     results_url = f"{source_url}urslit/"
                 else:
                     results_url = f"{source_url}/urslit/"
+            elif source_url.endswith('/urslit'):
+                # URL ends with /urslit but no trailing slash - add trailing slash
+                results_url = f"{source_url}/"
             
             race_info = {
                 'name': main_race_name,
@@ -289,11 +292,14 @@ class TimatakaScraper:
             for race_type, distance in found_distances:
                 # For simple event pages, try to build a results URL
                 results_url = source_url
-                if not source_url.endswith('/urslit/'):
+                if not source_url.endswith('/urslit/') and not source_url.endswith('/urslit'):
                     if source_url.endswith('/'):
                         results_url = f"{source_url}urslit/"
                     else:
                         results_url = f"{source_url}/urslit/"
+                elif source_url.endswith('/urslit'):
+                    # URL ends with /urslit but no trailing slash - add trailing slash
+                    results_url = f"{source_url}/"
                 
                 race_info = {
                     'name': f"{main_race_name} - {race_type.replace('_', ' ').title()}",
