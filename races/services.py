@@ -280,22 +280,44 @@ class ScrapingService:
                     existing_race = Race.objects.filter(source_url=race_info['url']).first()
                     
                     if existing_race:
-                        # Check if we should update the date (if current date is a placeholder)
+                        # Check if we should update the date
                         placeholder_dates = [
                             datetime(2021, 1, 31).date(),
                             datetime(2099, 12, 31).date()
                         ]
                         
+                        # Convert new date to date object if needed
+                        new_date = race_info['date'].date() if hasattr(race_info['date'], 'date') else race_info['date']
+                        
+                        should_update = False
+                        update_reason = ""
+                        
+                        # Update if current date is a placeholder
                         if existing_race.date in placeholder_dates and race_info['date']:
-                            # Update with better date information
+                            should_update = True
+                            update_reason = "placeholder date"
+                        # Update if dates are different and the new date is not a mid-month default (15th)
+                        elif (existing_race.date != new_date and 
+                              new_date and 
+                              new_date.day != 15):  # 15th suggests mid-month default
+                            should_update = True
+                            update_reason = "more specific date"
+                        # Also update if existing date is mid-month (15th) and new date is different
+                        elif (existing_race.date.day == 15 and 
+                              existing_race.date != new_date and 
+                              new_date):
+                            should_update = True
+                            update_reason = "replacing mid-month default"
+                        
+                        if should_update:
                             old_date = existing_race.date
-                            existing_race.date = race_info['date'].date() if hasattr(race_info['date'], 'date') else race_info['date']
+                            existing_race.date = new_date
                             existing_race.save()
                             result['updated'] += 1
-                            logger.info(f"Updated date for '{race_info['name']}': {old_date} -> {existing_race.date}")
+                            logger.info(f"Updated date for '{race_info['name']}' ({update_reason}): {old_date} -> {existing_race.date}")
                         else:
                             result['existing'] += 1
-                            logger.debug(f"Race already exists with good date: {race_info['name']}")
+                            logger.debug(f"Race already exists with current date: {race_info['name']} ({existing_race.date})")
                         continue
                     
                     # Create new race record

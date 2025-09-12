@@ -98,26 +98,33 @@ class TimatakaScraper:
                 logger.warning("Could not find 'left-area' div on timataka.net homepage")
                 return races
             
-            # Find all links within the left-area div, but also track h3 headers for date context
+            # Find all elements within the left-area div, tracking h3 headers for month/year context
             current_month_year = None
             
-            for element in left_area.find_all(['h3', 'a']):
+            for element in left_area.find_all(['h3', 'li']):
                 if element.name == 'h3':
                     # Extract month/year from h3 header
                     current_month_year = self._parse_month_year_header(element.get_text().strip())
                     logger.debug(f"Found date context: {current_month_year}")
                 
-                elif element.name == 'a' and element.get('href'):
-                    href = element.get('href')
-                    
-                    # Skip empty hrefs or pure anchors
-                    if not href or href.startswith('#'):
-                        continue
-                    
-                    # Extract race information from the link with date context
-                    race_info = self._extract_race_info_from_link(element, soup, current_month_year)
-                    if race_info:
-                        races.append(race_info)
+                elif element.name == 'li':
+                    # Look for race links within this li element
+                    link = element.find('a')
+                    if link and link.get('href'):
+                        href = link.get('href')
+                        
+                        # Skip empty hrefs or pure anchors
+                        if not href or href.startswith('#'):
+                            continue
+                        
+                        # Only process timataka.net race links
+                        if 'timataka.net' not in href:
+                            continue
+                        
+                        # Extract race information from the li element and its link
+                        race_info = self._extract_race_info_from_li(element, link, current_month_year)
+                        if race_info:
+                            races.append(race_info)
             
             # Remove duplicates based on URL
             seen_urls = set()
@@ -171,6 +178,111 @@ class TimatakaScraper:
                 year = int(year_str)
                 if month and 2000 <= year <= 2030:  # Reasonable year range
                     return {'month': month, 'year': year}
+            except ValueError:
+                pass
+        
+        return None
+    
+    def _extract_race_info_from_li(self, li_element, link, date_context: Optional[Dict] = None) -> Optional[Dict]:
+        """Extract race information from a li element containing a race link and its date"""
+        try:
+            href = link.get('href')
+            
+            # Convert relative URL to absolute
+            if href.startswith('/'):
+                race_url = self.base_url + href
+            else:
+                race_url = href
+            
+            # Get the link text as race name
+            race_name = link.get_text().strip()
+            
+            # Skip if name is too short
+            if len(race_name) < 3:
+                return None
+                
+            # Skip some obvious non-race links
+            skip_names = [
+                'here', 'click', 'more', 'info', 'contact', 'about',
+                'myndir', 'pictures', 'results only', 'úrslit'
+            ]
+            if race_name.lower() in skip_names:
+                return None
+            
+            # Get the full text of the li element which should contain the date
+            li_text = li_element.get_text().strip()
+            
+            # Try to extract date from the li element text first
+            race_date = self._parse_icelandic_date_from_li(li_text, date_context)
+            
+            # If no date found from li, fall back to previous methods
+            if not race_date:
+                race_date = self._extract_date_with_context(race_name, race_url, date_context)
+            
+            if not race_date:
+                race_date = self._extract_date_from_name(race_name)
+            
+            if not race_date:
+                race_date = self._extract_date_from_url(race_url)
+            
+            return {
+                'name': race_name,
+                'date': race_date,
+                'url': race_url,
+            }
+            
+        except Exception as e:
+            logger.warning(f"Error extracting race info from li: {str(e)}")
+            return None
+    
+    def _parse_icelandic_date_from_li(self, li_text: str, date_context: Optional[Dict] = None) -> Optional[datetime]:
+        """Parse Icelandic date from li element text like 'Race Name (3. september)'"""
+        if not li_text or not date_context:
+            return None
+        
+        # Look for date pattern in parentheses like "(3. september)" or "(31. ágúst)"
+        date_pattern = r'\((\d{1,2})\.\s*([a-záðéíóúýþæø]+)\)'
+        match = re.search(date_pattern, li_text, re.IGNORECASE)
+        
+        if match:
+            day_str = match.group(1)
+            month_str = match.group(2).lower()
+            
+            # Icelandic month names
+            icelandic_months = {
+                'janúar': 1, 'jan': 1,
+                'febrúar': 2, 'feb': 2,
+                'mars': 3, 'mar': 3,
+                'apríl': 4, 'apr': 4,
+                'maí': 5, 'may': 5,
+                'júní': 6, 'jun': 6,
+                'júlí': 7, 'jul': 7,
+                'ágúst': 8, 'aug': 8, 'ágú': 8,
+                'september': 9, 'sep': 9,
+                'október': 10, 'okt': 10, 'oct': 10,
+                'nóvember': 11, 'nóv': 11, 'nov': 11,
+                'desember': 12, 'des': 12, 'dec': 12
+            }
+            
+            try:
+                day = int(day_str)
+                
+                # Find matching month
+                month = None
+                for month_key, month_num in icelandic_months.items():
+                    if month_str.startswith(month_key) or month_key.startswith(month_str):
+                        month = month_num
+                        break
+                
+                if month and 1 <= day <= 31:
+                    # Use year from date_context
+                    year = date_context.get('year', datetime.now().year)
+                    try:
+                        return datetime(year, month, day)
+                    except ValueError:
+                        # Invalid date (e.g., Feb 30), fall back to context
+                        pass
+                        
             except ValueError:
                 pass
         
