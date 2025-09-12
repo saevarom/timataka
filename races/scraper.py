@@ -92,13 +92,18 @@ class TimatakaScraper:
             soup = BeautifulSoup(response.content, 'lxml')
             races = []
             
-            # Find race links - these are typically in <a> tags with href containing race URLs
-            # Look for links that seem to point to race pages
-            for link in soup.find_all('a', href=True):
+            # Find the left-area div which contains race links
+            left_area = soup.find('div', id='left-area')
+            if not left_area:
+                logger.warning("Could not find 'left-area' div on timataka.net homepage")
+                return races
+            
+            # Find all links within the left-area div
+            for link in left_area.find_all('a', href=True):
                 href = link.get('href')
                 
-                # Skip if not a race link
-                if not self._is_race_link(href):
+                # Skip empty hrefs or pure anchors
+                if not href or href.startswith('#'):
                     continue
                 
                 # Extract race information from the link and surrounding context
@@ -124,45 +129,6 @@ class TimatakaScraper:
             logger.error(f"Error discovering races: {str(e)}")
             raise TimatakaScrapingError(f"Failed to discover races: {str(e)}")
     
-    def _is_race_link(self, href: str) -> bool:
-        """Check if a link appears to be a race page link"""
-        if not href:
-            return False
-            
-        # Convert relative URLs to absolute
-        if href.startswith('/'):
-            href = self.base_url + href
-        elif not href.startswith('http'):
-            return False
-            
-        # Look for patterns that indicate race pages
-        race_indicators = [
-            '/comp/',  # Competition pages
-            '/race/',  # Race pages
-            'CompetitionId=',  # Competition ID parameter
-            'RaceId=',  # Race ID parameter
-        ]
-        
-        # Check for classic indicators first
-        if any(indicator in href for indicator in race_indicators):
-            return True
-        
-        # Check for timataka.net race pattern (e.g., timataka.net/racename2025/)
-        if 'timataka.net/' in href:
-            # Extract the path part after timataka.net/
-            parts = href.split('timataka.net/')
-            if len(parts) > 1:
-                path = parts[1].strip('/')
-                # Look for year patterns or race-like names
-                if any(year in path for year in ['2024', '2025', '2026']):
-                    return True
-                # Look for common race name patterns
-                race_patterns = ['hlaup', 'run', 'trail', 'marathon', 'race', 'competition', 'mót']
-                if any(pattern in path.lower() for pattern in race_patterns):
-                    return True
-        
-        return False
-    
     def _extract_race_info_from_link(self, link, soup: BeautifulSoup) -> Optional[Dict]:
         """Extract race information from a race link and its context"""
         try:
@@ -177,15 +143,14 @@ class TimatakaScraper:
             # Get the link text as potential race name
             race_name = link.get_text().strip()
             
-            # Skip if name is too short or generic
+            # Skip if name is too short
             if len(race_name) < 3:
                 return None
                 
-            # Skip navigation and generic links
+            # Skip some obvious non-race links (but be more permissive)
             skip_names = [
-                'here', 'click', 'more', 'info', 'home', 'fyrirspurnir', 
-                'mylaps', 'championchip', 'tímatökuþjónusta', 'úrslit',
-                'myndir', 'pictures', 'results', 'contact', 'about'
+                'here', 'click', 'more', 'info', 'contact', 'about',
+                'myndir', 'pictures', 'results only', 'úrslit'
             ]
             if race_name.lower() in skip_names:
                 return None
