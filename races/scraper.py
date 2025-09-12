@@ -164,23 +164,28 @@ class TimatakaScraper:
             TimatakaScrapingError: If scraping fails or data is invalid
         """
         try:
+            # Check if this URL is already a results URL (contains /urslit/ and race parameters)
+            if '/urslit/' in event_url and 'race=' in event_url:
+                # This is a results URL that needs to be treated as a single race
+                return self._handle_direct_results_url(event_url)
+            
             # Fetch the event page
             response = requests.get(event_url, timeout=30)
             response.raise_for_status()
-            
+
             # Use a specialized method for extracting races from event pages
             races = self.scrape_race_data_from_event_page(response.text, event_url)
-            
+
             logger.info(f"Scraped {len(races)} races from event URL: {event_url}")
             return races
-            
+
         except requests.exceptions.RequestException as e:
             logger.error(f"Error fetching event URL {event_url}: {str(e)}")
             raise TimatakaScrapingError(f"Failed to fetch event page: {str(e)}")
         except Exception as e:
             logger.error(f"Error scraping races from event: {str(e)}")
             raise TimatakaScrapingError(f"Failed to scrape races from event: {str(e)}")
-    
+
     def scrape_race_data_from_event_page(self, html_content: str, source_url: str) -> List[Dict]:
         """
         Scrape race data from a Timataka event page (not results page).
@@ -1372,3 +1377,72 @@ class TimatakaScraper:
                     })
         
         return splits
+
+    def _handle_direct_results_url(self, results_url: str) -> List[Dict]:
+        """
+        Handle URLs that are already results URLs (contain /urslit/ and race parameters).
+        These should be treated as single races with enhanced URLs.
+        
+        Args:
+            results_url: URL that's already a results URL like /urslit/?race=1
+            
+        Returns:
+            List with a single race dictionary
+        """
+        try:
+            # Ensure the URL has cat=overall parameter
+            enhanced_url = self._ensure_overall_category(results_url)
+            
+            # Extract race information from the URL and page content
+            response = requests.get(results_url, timeout=30)
+            response.raise_for_status()
+            soup = BeautifulSoup(response.text, 'lxml')
+            
+            # Extract race name from page title or content
+            race_name = self._extract_main_race_name(soup)
+            if not race_name:
+                title_tag = soup.find('title')
+                if title_tag:
+                    title_text = title_tag.get_text().strip()
+                    race_name = title_text.replace('TÍMATAKA: ', '').strip()
+                else:
+                    race_name = "Unknown Race"
+            
+            # Extract other information
+            location = self._extract_location_from_name(race_name)
+            race_date = self._extract_race_date_from_page(soup)
+            distance = self._extract_distance_from_name(race_name)
+            race_type = self._determine_race_type_from_distance(distance) if distance > 0 else self._determine_race_type_from_name(race_name)
+            
+            race_info = {
+                'name': race_name,
+                'race_type': race_type,
+                'date': race_date,
+                'location': location,
+                'distance_km': distance,
+                'elevation_gain_m': 0,
+                'organizer': 'Tímataka',
+                'currency': 'ISK',
+                'description': f"Race with results at: {results_url}",
+                'source_url': results_url,
+                'results_url': enhanced_url  # Use the enhanced URL with cat=overall
+            }
+            
+            return [race_info]
+            
+        except Exception as e:
+            logger.error(f"Error handling direct results URL {results_url}: {str(e)}")
+            # Fallback: create a basic race entry
+            return [{
+                'name': "Unknown Race",
+                'race_type': 'other',
+                'date': None,
+                'location': 'Iceland',
+                'distance_km': 0.0,
+                'elevation_gain_m': 0,
+                'organizer': 'Tímataka',
+                'currency': 'ISK',
+                'description': f"Race with results at: {results_url}",
+                'source_url': results_url,
+                'results_url': self._ensure_overall_category(results_url)
+            }]
