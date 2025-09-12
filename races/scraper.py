@@ -1,4 +1,5 @@
 import re
+import requests
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Tuple
 from bs4 import BeautifulSoup
@@ -25,6 +26,7 @@ class TimatakaScraper:
     """
     
     def __init__(self):
+        self.base_url = "https://timataka.net"
         self.race_type_mapping = {
             'marathon': 'marathon',
             'hálf marathon': 'half_marathon',
@@ -68,6 +70,229 @@ class TimatakaScraper:
         except Exception as e:
             logger.error(f"Error scraping race data: {str(e)}")
             raise TimatakaScrapingError(f"Failed to scrape race data: {str(e)}")
+    
+    def discover_races_from_homepage(self) -> List[Dict]:
+        """
+        Discover races by scraping the main timataka.net homepage.
+        
+        Returns:
+            List of dictionaries containing race information:
+            - name: Race name (in Icelandic)
+            - date: Race date as datetime object
+            - url: Link to the race page
+            
+        Raises:
+            TimatakaScrapingError: If scraping fails or data is invalid
+        """
+        try:
+            # Fetch the main timataka.net page
+            response = requests.get(self.base_url, timeout=30)
+            response.raise_for_status()
+            
+            soup = BeautifulSoup(response.content, 'lxml')
+            races = []
+            
+            # Find race links - these are typically in <a> tags with href containing race URLs
+            # Look for links that seem to point to race pages
+            for link in soup.find_all('a', href=True):
+                href = link.get('href')
+                
+                # Skip if not a race link
+                if not self._is_race_link(href):
+                    continue
+                
+                # Extract race information from the link and surrounding context
+                race_info = self._extract_race_info_from_link(link, soup)
+                if race_info:
+                    races.append(race_info)
+            
+            # Remove duplicates based on URL
+            seen_urls = set()
+            unique_races = []
+            for race in races:
+                if race['url'] not in seen_urls:
+                    seen_urls.add(race['url'])
+                    unique_races.append(race)
+            
+            logger.info(f"Discovered {len(unique_races)} races from timataka.net homepage")
+            return unique_races
+            
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error fetching timataka.net homepage: {str(e)}")
+            raise TimatakaScrapingError(f"Failed to fetch homepage: {str(e)}")
+        except Exception as e:
+            logger.error(f"Error discovering races: {str(e)}")
+            raise TimatakaScrapingError(f"Failed to discover races: {str(e)}")
+    
+    def _is_race_link(self, href: str) -> bool:
+        """Check if a link appears to be a race page link"""
+        if not href:
+            return False
+            
+        # Convert relative URLs to absolute
+        if href.startswith('/'):
+            href = self.base_url + href
+        elif not href.startswith('http'):
+            return False
+            
+        # Look for patterns that indicate race pages
+        race_indicators = [
+            '/comp/',  # Competition pages
+            '/race/',  # Race pages
+            'CompetitionId=',  # Competition ID parameter
+            'RaceId=',  # Race ID parameter
+        ]
+        
+        # Check for classic indicators first
+        if any(indicator in href for indicator in race_indicators):
+            return True
+        
+        # Check for timataka.net race pattern (e.g., timataka.net/racename2025/)
+        if 'timataka.net/' in href:
+            # Extract the path part after timataka.net/
+            parts = href.split('timataka.net/')
+            if len(parts) > 1:
+                path = parts[1].strip('/')
+                # Look for year patterns or race-like names
+                if any(year in path for year in ['2024', '2025', '2026']):
+                    return True
+                # Look for common race name patterns
+                race_patterns = ['hlaup', 'run', 'trail', 'marathon', 'race', 'competition', 'mót']
+                if any(pattern in path.lower() for pattern in race_patterns):
+                    return True
+        
+        return False
+    
+    def _extract_race_info_from_link(self, link, soup: BeautifulSoup) -> Optional[Dict]:
+        """Extract race information from a race link and its context"""
+        try:
+            href = link.get('href')
+            
+            # Convert relative URL to absolute
+            if href.startswith('/'):
+                race_url = self.base_url + href
+            else:
+                race_url = href
+            
+            # Get the link text as potential race name
+            race_name = link.get_text().strip()
+            
+            # Skip if name is too short or generic
+            if len(race_name) < 3:
+                return None
+                
+            # Skip navigation and generic links
+            skip_names = [
+                'here', 'click', 'more', 'info', 'home', 'fyrirspurnir', 
+                'mylaps', 'championchip', 'tímatökuþjónusta', 'úrslit',
+                'myndir', 'pictures', 'results', 'contact', 'about'
+            ]
+            if race_name.lower() in skip_names:
+                return None
+            
+            # Try to extract date from surrounding context
+            race_date = self._extract_date_from_context(link, soup)
+            
+            # If no date found, try to parse from race name or URL
+            if not race_date:
+                race_date = self._extract_date_from_name(race_name)
+            
+            if not race_date:
+                race_date = self._extract_date_from_url(race_url)
+            
+            return {
+                'name': race_name,
+                'date': race_date,
+                'url': race_url,
+            }
+            
+        except Exception as e:
+            logger.warning(f"Error extracting race info from link: {str(e)}")
+            return None
+    
+    def _extract_date_from_url(self, url: str) -> Optional[datetime]:
+        """Extract date from URL (e.g., from /racename2025/)"""
+        # Look for year in URL
+        year_match = re.search(r'(\d{4})', url)
+        if year_match:
+            year = int(year_match.group(1))
+            if 2020 <= year <= 2030:  # Reasonable range
+                # Default to mid-year if we only have year
+                return datetime(year, 6, 15)
+        return None
+    
+    def _extract_date_from_context(self, link, soup: BeautifulSoup) -> Optional[datetime]:
+        """Extract date from the context around a race link"""
+        # Look for date patterns in the parent elements
+        parent = link.parent
+        attempts = 0
+        
+        while parent and attempts < 3:
+            text = parent.get_text()
+            date = self._parse_icelandic_date(text)
+            if date:
+                return date
+            parent = parent.parent
+            attempts += 1
+        
+        # Look for date in nearby siblings
+        if link.parent:
+            for sibling in link.parent.find_all_next(limit=5):
+                text = sibling.get_text()
+                date = self._parse_icelandic_date(text)
+                if date:
+                    return date
+        
+        return None
+    
+    def _extract_date_from_name(self, race_name: str) -> Optional[datetime]:
+        """Try to extract date from race name"""
+        return self._parse_icelandic_date(race_name)
+    
+    def _parse_icelandic_date(self, text: str) -> Optional[datetime]:
+        """Parse Icelandic date from text"""
+        if not text:
+            return None
+            
+        # Icelandic month names
+        icelandic_months = {
+            'janúar': 1, 'febrúar': 2, 'mars': 3, 'apríl': 4,
+            'maí': 5, 'júní': 6, 'júlí': 7, 'ágúst': 8,
+            'september': 9, 'október': 10, 'nóvember': 11, 'desember': 12
+        }
+        
+        # Try various Icelandic date patterns
+        patterns = [
+            r'(\d{1,2})\.\s*(\w+)\s*(\d{4})',  # "15. maí 2025"
+            r'(\d{1,2})\s+(\w+)\s+(\d{4})',    # "15 maí 2025"
+            r'(\d{1,2})\.(\d{1,2})\.(\d{4})',  # "15.05.2025"
+            r'(\d{4})-(\d{1,2})-(\d{1,2})',    # "2025-05-15"
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                try:
+                    if len(match.groups()) == 3:
+                        if match.group(2).isdigit():
+                            # Numeric date format
+                            day = int(match.group(1))
+                            month = int(match.group(2))
+                            year = int(match.group(3))
+                            return datetime(year, month, day)
+                        else:
+                            # Month name format
+                            day = int(match.group(1))
+                            month_name = match.group(2).lower()
+                            year = int(match.group(3))
+                            
+                            month = icelandic_months.get(month_name)
+                            if month:
+                                return datetime(year, month, day)
+                except (ValueError, KeyError):
+                    continue
+        
+        return None
     
     def _extract_main_race_name(self, soup: BeautifulSoup) -> str:
         """Extract the main race name from the page title or header"""

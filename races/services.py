@@ -1,5 +1,6 @@
 from typing import List, Dict, Optional
 import logging
+from datetime import datetime
 from django.db import transaction
 from .scraper import TimatakaScraper, TimatakaScrapingError
 from .models import Race, Runner, Result, Split
@@ -247,6 +248,95 @@ class ScrapingService:
             logger.info(f"Created new race: {race.name}")
             return 'saved'
     
+    def discover_and_save_races(self, overwrite: bool = False) -> Dict[str, int]:
+        """
+        Discover races from timataka.net homepage and save new ones to database.
+        
+        Args:
+            overwrite: Whether to update existing races (currently not used for discovery)
+            
+        Returns:
+            Dict with counts: {'discovered': X, 'new': Y, 'existing': Z, 'errors': W}
+        """
+        result = {
+            'discovered': 0,
+            'new': 0,
+            'existing': 0,
+            'errors': 0
+        }
+        
+        try:
+            # Discover races from homepage
+            discovered_races = self.scraper.discover_races_from_homepage()
+            result['discovered'] = len(discovered_races)
+            
+            logger.info(f"Discovered {len(discovered_races)} races from timataka.net")
+            
+            # Process each discovered race
+            for race_info in discovered_races:
+                try:
+                    # Check if race already exists (by URL)
+                    existing_race = Race.objects.filter(source_url=race_info['url']).first()
+                    
+                    if existing_race:
+                        result['existing'] += 1
+                        logger.debug(f"Race already exists: {race_info['name']}")
+                        continue
+                    
+                    # Create new race record
+                    with transaction.atomic():
+                        race = self._create_race_from_discovery(race_info)
+                        result['new'] += 1
+                        logger.info(f"Saved new race: {race.name} ({race.date})")
+                        
+                except Exception as e:
+                    logger.error(f"Error processing discovered race '{race_info.get('name', 'Unknown')}': {str(e)}")
+                    result['errors'] += 1
+            
+            return result
+            
+        except TimatakaScrapingError as e:
+            logger.error(f"Race discovery failed: {str(e)}")
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error in race discovery: {str(e)}")
+            raise TimatakaScrapingError(f"Service error: {str(e)}")
+    
+    def _create_race_from_discovery(self, race_info: Dict) -> Race:
+        """Create a Race object from discovered race information"""
+        # Extract basic information
+        name = race_info['name']
+        race_date = race_info['date']
+        source_url = race_info['url']
+        
+        # Set default values for required fields
+        race_type = 'other'  # Default, will be updated when race page is scraped
+        location = 'Iceland'  # Default location
+        distance_km = 0.0  # Default, will be updated when race page is scraped
+        
+        # Try to extract some information from the name
+        if race_date is None:
+            # If no date was extracted, use a placeholder far in the future
+            race_date = datetime(2099, 12, 31).date()
+        elif hasattr(race_date, 'date'):
+            race_date = race_date.date()
+        
+        # Create and save the race
+        race = Race.objects.create(
+            name=name,
+            description=f"Race discovered from timataka.net - {name}",
+            race_type=race_type,
+            date=race_date,
+            location=location,
+            distance_km=distance_km,
+            elevation_gain_m=0,
+            organizer='Tímataka',
+            currency='ISK',
+            source_url=source_url,
+        )
+        
+        return race
+
     def validate_html_content(self, html_content: str) -> bool:
         """
         Validate if HTML content appears to be from a Timataka page.
