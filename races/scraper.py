@@ -331,8 +331,23 @@ class TimatakaScraper:
             race_match = re.search(r'race=(\d+)', href)
             if race_match:
                 race_id = race_match.group(1)
+                
+                # Prioritize "overall" category links, or ensure we have cat=overall
                 if race_id not in race_data:
-                    race_data[race_id] = href
+                    # First time seeing this race ID
+                    if 'cat=overall' in href:
+                        # Perfect - this is the overall results link
+                        race_data[race_id] = href
+                    elif 'cat=' not in href:
+                        # No category specified - add overall category
+                        race_data[race_id] = self._ensure_overall_category(href)
+                    else:
+                        # Has a category but not overall - store it for now
+                        race_data[race_id] = href
+                else:
+                    # We already have this race ID - prioritize overall
+                    if 'cat=overall' in href:
+                        race_data[race_id] = href
         
         # For each unique race ID, find the corresponding race name and distance
         base_date = self._extract_race_date_from_page(soup)
@@ -368,6 +383,10 @@ class TimatakaScraper:
                 if i < len(race_ids) and race_data:
                     race_id = race_ids[i]
                     href = race_data[race_id]
+                    
+                    # Ensure the href has cat=overall
+                    href = self._ensure_overall_category(href)
+                    
                     # Build full results URL by appending the relative href
                     base_url = source_url.rstrip('/')
                     results_url = f"{base_url}/{href}"
@@ -390,6 +409,9 @@ class TimatakaScraper:
         # If we couldn't extract specific race info but found race IDs, create generic races
         elif race_data:
             for race_id, href in race_data.items():
+                # Ensure the href has cat=overall
+                href = self._ensure_overall_category(href)
+                
                 # Build full results URL by appending the relative href
                 base_url = source_url.rstrip('/')
                 results_url = f"{base_url}/{href}"
@@ -425,6 +447,22 @@ class TimatakaScraper:
             return '5k'
         else:
             return 'other'
+    
+    def _ensure_overall_category(self, href: str) -> str:
+        """Ensure that a race results href includes cat=overall parameter"""
+        if 'cat=overall' in href:
+            # Already has overall category
+            return href
+        elif 'cat=' in href:
+            # Has a different category - replace it with overall
+            import re
+            return re.sub(r'cat=[^&]*', 'cat=overall', href)
+        else:
+            # No category specified - add overall category
+            if '?' in href:
+                return f"{href}&cat=overall"
+            else:
+                return f"{href}?cat=overall"
     
     def _extract_race_date_from_page(self, soup: BeautifulSoup) -> Optional[datetime]:
         """Extract race date from event page content"""
