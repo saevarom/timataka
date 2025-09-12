@@ -354,6 +354,117 @@ class ScrapingService:
         
         return event
     
+    def process_events_and_extract_races(self, event_ids: List[int] = None, limit: int = None) -> Dict[str, int]:
+        """
+        Process Event records and extract individual Race records from their detail pages.
+        
+        Args:
+            event_ids: List of specific event IDs to process. If None, processes unprocessed events.
+            limit: Maximum number of events to process in this run
+            
+        Returns:
+            Dict with counts: {'processed': X, 'races_created': Y, 'errors': Z}
+        """
+        result = {
+            'processed': 0,
+            'races_created': 0,
+            'errors': 0
+        }
+        
+        try:
+            # Get events to process
+            if event_ids:
+                events = Event.objects.filter(id__in=event_ids)
+            else:
+                # Process events that haven't been processed yet
+                events = Event.objects.filter(status='discovered').order_by('date')
+                
+            if limit:
+                events = events[:limit]
+            
+            logger.info(f"Processing {events.count()} events to extract races")
+            
+            for event in events:
+                try:
+                    logger.info(f"Processing event: {event.name} ({event.url})")
+                    
+                    # Update event status to indicate processing has started
+                    event.status = 'processing'
+                    event.last_processed = datetime.now()
+                    event.save()
+                    
+                    # Scrape races from the event URL
+                    races_data = self.scraper.scrape_races_from_event_url(event.url)
+                    
+                    # Create Race objects for each race found
+                    races_created_count = 0
+                    with transaction.atomic():
+                        for race_data in races_data:
+                            try:
+                                race = self._create_race_from_event_data(race_data, event)
+                                races_created_count += 1
+                                logger.debug(f"Created race: {race.name}")
+                            except Exception as e:
+                                logger.error(f"Error creating race from data {race_data}: {str(e)}")
+                                result['errors'] += 1
+                    
+                    # Update event status to processed
+                    event.status = 'processed'
+                    event.save()
+                    
+                    result['processed'] += 1
+                    result['races_created'] += races_created_count
+                    logger.info(f"Successfully processed event '{event.name}': {races_created_count} races created")
+                    
+                except Exception as e:
+                    # Mark event as error and continue with next event
+                    event.status = 'error'
+                    event.processing_error = str(e)
+                    event.save()
+                    result['errors'] += 1
+                    logger.error(f"Error processing event '{event.name}': {str(e)}")
+                    
+            return result
+            
+        except Exception as e:
+            logger.error(f"Unexpected error in event processing: {str(e)}")
+            raise TimatakaScrapingError(f"Service error: {str(e)}")
+    
+    def _create_race_from_event_data(self, race_data: Dict, event: Event) -> Race:
+        """Create a Race object from scraped race data and link it to an Event"""
+        # Extract race information from the scraped data
+        name = race_data.get('name', 'Unknown Race')
+        race_type = race_data.get('race_type', 'other')
+        date = race_data.get('date')
+        location = race_data.get('location', event.name)  # Fallback to event name
+        distance_km = race_data.get('distance_km', 0.0)
+        elevation_gain_m = race_data.get('elevation_gain_m', 0)
+        organizer = race_data.get('organizer', 'Tímataka')
+        
+        # Convert date if needed
+        if date and hasattr(date, 'date'):
+            date = date.date()
+        elif not date:
+            # Use event date as fallback
+            date = event.date
+        
+        # Create and save the race
+        race = Race.objects.create(
+            event=event,
+            name=name,
+            description=race_data.get('description', f"Race from event: {event.name}"),
+            race_type=race_type,
+            date=date,
+            location=location,
+            distance_km=distance_km,
+            elevation_gain_m=elevation_gain_m,
+            organizer=organizer,
+            currency=race_data.get('currency', 'ISK'),
+            source_url=event.url,  # Link back to the event URL
+        )
+        
+        return race
+    
     def _create_race_from_discovery(self, race_info: Dict) -> Race:
         """Create a Race object from discovered race information"""
         # Extract basic information

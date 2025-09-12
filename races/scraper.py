@@ -144,6 +144,249 @@ class TimatakaScraper:
             logger.error(f"Error discovering races: {str(e)}")
             raise TimatakaScrapingError(f"Failed to discover races: {str(e)}")
     
+    def scrape_races_from_event_url(self, event_url: str) -> List[Dict]:
+        """
+        Scrape individual races from an event page URL.
+        
+        Args:
+            event_url: URL to the event page on timataka.net
+            
+        Returns:
+            List of dictionaries containing race information:
+            - name: Race name
+            - race_type: Type of race (marathon, 10k, etc.)
+            - date: Race date
+            - location: Race location
+            - distance_km: Distance in kilometers
+            - etc.
+            
+        Raises:
+            TimatakaScrapingError: If scraping fails or data is invalid
+        """
+        try:
+            # Fetch the event page
+            response = requests.get(event_url, timeout=30)
+            response.raise_for_status()
+            
+            # Use a specialized method for extracting races from event pages
+            races = self.scrape_race_data_from_event_page(response.text, event_url)
+            
+            logger.info(f"Scraped {len(races)} races from event URL: {event_url}")
+            return races
+            
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error fetching event URL {event_url}: {str(e)}")
+            raise TimatakaScrapingError(f"Failed to fetch event page: {str(e)}")
+        except Exception as e:
+            logger.error(f"Error scraping races from event: {str(e)}")
+            raise TimatakaScrapingError(f"Failed to scrape races from event: {str(e)}")
+    
+    def scrape_race_data_from_event_page(self, html_content: str, source_url: str) -> List[Dict]:
+        """
+        Scrape race data from a Timataka event page (not results page).
+        
+        Event pages typically contain general information about the event and may
+        link to different race categories or distances.
+        
+        Args:
+            html_content: Raw HTML content from a Timataka event page
+            source_url: Original URL for reference
+            
+        Returns:
+            List of race dictionaries with extracted data
+        """
+        try:
+            soup = BeautifulSoup(html_content, 'lxml')
+            
+            # Extract main event information
+            main_race_name = self._extract_main_race_name(soup)
+            if not main_race_name:
+                # Fallback: try to get title from page
+                title_tag = soup.find('title')
+                if title_tag:
+                    title_text = title_tag.get_text().strip()
+                    # Remove "TÍMATAKA: " prefix if present
+                    main_race_name = title_text.replace('TÍMATAKA: ', '').strip()
+                else:
+                    main_race_name = "Unknown Event"
+            
+            location = self._extract_location_from_name(main_race_name)
+            
+            # For event pages, we often just have one main race/event
+            # Try to extract more detailed information
+            race_info = {
+                'name': main_race_name,
+                'race_type': self._determine_race_type_from_name(main_race_name),
+                'date': self._extract_race_date_from_page(soup),
+                'location': location,
+                'distance_km': self._extract_distance_from_name(main_race_name),
+                'elevation_gain_m': 0,  # Default, rarely available on event pages
+                'organizer': 'Tímataka',
+                'currency': 'ISK',
+                'description': self._extract_race_description(soup),
+                'source_url': source_url
+            }
+            
+            # Try to find multiple race categories if they exist on the event page
+            # Look for different patterns that might indicate multiple races
+            race_categories = self._extract_race_categories_from_event_page(soup, main_race_name, location, source_url)
+            
+            if race_categories:
+                return race_categories
+            else:
+                # Return single race based on main event info
+                return [race_info]
+                
+        except Exception as e:
+            logger.error(f"Error scraping race data from event page: {str(e)}")
+            raise TimatakaScrapingError(f"Failed to scrape race data from event page: {str(e)}")
+    
+    def _extract_race_categories_from_event_page(self, soup: BeautifulSoup, main_race_name: str, 
+                                               location: str, source_url: str) -> List[Dict]:
+        """Extract race categories from an event page (different from results page)"""
+        race_categories = []
+        
+        # Look for different patterns that might indicate multiple races
+        # Pattern 1: Look for distance information in the page content
+        content_text = soup.get_text().lower()
+        
+        # Common race distances mentioned in Icelandic
+        distance_patterns = [
+            (r'maraþon|marathon', 'marathon', 42.195),
+            (r'hálf[- ]?maraþon|half[- ]?marathon', 'half_marathon', 21.0975),
+            (r'10\s?km|10km', '10k', 10.0),
+            (r'5\s?km|5km', '5k', 5.0),
+            (r'ultra', 'ultra', 50.0),  # Default ultra distance
+        ]
+        
+        found_distances = []
+        for pattern, race_type, distance in distance_patterns:
+            if re.search(pattern, content_text):
+                found_distances.append((race_type, distance))
+        
+        # If we found specific distances, create separate races for each
+        if found_distances:
+            for race_type, distance in found_distances:
+                race_info = {
+                    'name': f"{main_race_name} - {race_type.replace('_', ' ').title()}",
+                    'race_type': race_type,
+                    'date': self._extract_race_date_from_page(soup),
+                    'location': location,
+                    'distance_km': distance,
+                    'elevation_gain_m': 0,
+                    'organizer': 'Tímataka',
+                    'currency': 'ISK',
+                    'description': self._extract_race_description(soup),
+                    'source_url': source_url
+                }
+                race_categories.append(race_info)
+        
+        return race_categories
+    
+    def _extract_race_date_from_page(self, soup: BeautifulSoup) -> Optional[datetime]:
+        """Extract race date from event page content"""
+        # Look for date patterns in the page content
+        content_text = soup.get_text()
+        
+        # Common Icelandic date patterns
+        date_patterns = [
+            r'(\d{1,2})\.\s*(janúar|febrúar|mars|apríl|maí|júní|júlí|ágúst|september|október|nóvember|desember)\s*(\d{4})',
+            r'(\d{1,2})/(\d{1,2})/(\d{4})',
+            r'(\d{4})-(\d{1,2})-(\d{1,2})',
+        ]
+        
+        icelandic_months = {
+            'janúar': 1, 'febrúar': 2, 'mars': 3, 'apríl': 4, 'maí': 5, 'júní': 6,
+            'júlí': 7, 'ágúst': 8, 'september': 9, 'október': 10, 'nóvember': 11, 'desember': 12
+        }
+        
+        for pattern in date_patterns:
+            match = re.search(pattern, content_text, re.IGNORECASE)
+            if match:
+                try:
+                    if 'janúar' in pattern:  # Icelandic format
+                        day, month_name, year = match.groups()
+                        month = icelandic_months.get(month_name.lower())
+                        if month:
+                            return datetime(int(year), month, int(day))
+                    else:  # Numeric formats
+                        groups = match.groups()
+                        if len(groups) == 3:
+                            if '-' in pattern:  # YYYY-MM-DD
+                                year, month, day = groups
+                            else:  # DD/MM/YYYY
+                                day, month, year = groups
+                            return datetime(int(year), int(month), int(day))
+                except ValueError:
+                    continue
+        
+        return None
+    
+    def _extract_race_description(self, soup: BeautifulSoup) -> str:
+        """Extract race description from page content"""
+        # Look for meta description
+        meta_desc = soup.find('meta', attrs={'name': 'description'})
+        if meta_desc and meta_desc.get('content'):
+            return meta_desc.get('content').strip()
+        
+        # Look for main content area
+        content_areas = soup.find_all(['div', 'section'], class_=['content', 'main', 'description'])
+        for area in content_areas:
+            text = area.get_text().strip()
+            if len(text) > 50:  # Meaningful content
+                return text[:500]  # Limit length
+        
+        return ""
+    
+    def _determine_race_type_from_name(self, name: str) -> str:
+        """Determine race type from race name"""
+        name_lower = name.lower()
+        
+        type_mappings = {
+            'marathon': 'marathon',
+            'maraþon': 'marathon',
+            'hálf': 'half_marathon',
+            'half': 'half_marathon',
+            'ultra': 'ultra',
+            '10k': '10k',
+            '5k': '5k',
+            'hlaup': 'other',  # Generic "run" in Icelandic
+            'þríþraut': 'other',  # Triathlon
+            'criterium': 'other',
+            'hjól': 'other',  # Cycling
+            'trail': 'trail',
+        }
+        
+        for keyword, race_type in type_mappings.items():
+            if keyword in name_lower:
+                return race_type
+        
+        return 'other'
+    
+    def _extract_distance_from_name(self, name: str) -> float:
+        """Extract distance from race name"""
+        name_lower = name.lower()
+        
+        # Look for explicit distance mentions
+        distance_patterns = [
+            (r'marathon|maraþon', 42.195),
+            (r'hálf|half', 21.0975),
+            (r'10\s?k', 10.0),
+            (r'5\s?k', 5.0),
+            (r'ultra', 50.0),  # Default ultra distance
+            (r'(\d+)\s?km', lambda m: float(m.group(1))),
+        ]
+        
+        for pattern, distance in distance_patterns:
+            match = re.search(pattern, name_lower)
+            if match:
+                if callable(distance):
+                    return distance(match)
+                else:
+                    return distance
+        
+        return 0.0  # Default if no distance found
+
     def _parse_month_year_header(self, header_text: str) -> Optional[Dict]:
         """Parse month and year from h3 header text like 'Sep 2025' or 'Ágú 2024'"""
         if not header_text:
