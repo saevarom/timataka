@@ -337,6 +337,9 @@ class ScrapingService:
         event_date = event_info['date']
         url = event_info['url']
         
+        # Normalize the URL to ensure it points to results if it's a simple event page
+        normalized_url = self._normalize_event_url(url)
+        
         # Convert date to date object if needed
         if event_date is None:
             # If no date was extracted, use a placeholder far in the future
@@ -348,12 +351,38 @@ class ScrapingService:
         event = Event.objects.create(
             name=name,
             date=event_date,
-            url=url,
+            url=normalized_url,
             status='discovered',
         )
         
         return event
     
+    def _normalize_event_url(self, url: str) -> str:
+        """
+        Normalize event URLs to ensure they point to results pages when appropriate.
+        
+        For simple event pages (like https://timataka.net/gamlarshlaup2013/), 
+        append /urslit/ to make them results URLs.
+        
+        For URLs that are already results URLs (contain /urslit/ or have race parameters),
+        leave them as-is.
+        
+        Args:
+            url: Original event URL
+            
+        Returns:
+            Normalized URL that points to results
+        """
+        # If URL already contains /urslit/ or has race parameters, don't modify it
+        if '/urslit/' in url or '/urslit' in url or 'race=' in url:
+            return url
+        
+        # For simple event pages, append /urslit/ to make them results URLs
+        if url.endswith('/'):
+            return f"{url}urslit/"
+        else:
+            return f"{url}/urslit/"
+
     def process_events_and_extract_races(self, event_ids: List[int] = None, limit: int = None) -> Dict[str, int]:
         """
         Process Event records and extract individual Race records from their detail pages.
