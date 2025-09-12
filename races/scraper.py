@@ -98,18 +98,26 @@ class TimatakaScraper:
                 logger.warning("Could not find 'left-area' div on timataka.net homepage")
                 return races
             
-            # Find all links within the left-area div
-            for link in left_area.find_all('a', href=True):
-                href = link.get('href')
+            # Find all links within the left-area div, but also track h3 headers for date context
+            current_month_year = None
+            
+            for element in left_area.find_all(['h3', 'a']):
+                if element.name == 'h3':
+                    # Extract month/year from h3 header
+                    current_month_year = self._parse_month_year_header(element.get_text().strip())
+                    logger.debug(f"Found date context: {current_month_year}")
                 
-                # Skip empty hrefs or pure anchors
-                if not href or href.startswith('#'):
-                    continue
-                
-                # Extract race information from the link and surrounding context
-                race_info = self._extract_race_info_from_link(link, soup)
-                if race_info:
-                    races.append(race_info)
+                elif element.name == 'a' and element.get('href'):
+                    href = element.get('href')
+                    
+                    # Skip empty hrefs or pure anchors
+                    if not href or href.startswith('#'):
+                        continue
+                    
+                    # Extract race information from the link with date context
+                    race_info = self._extract_race_info_from_link(element, soup, current_month_year)
+                    if race_info:
+                        races.append(race_info)
             
             # Remove duplicates based on URL
             seen_urls = set()
@@ -129,7 +137,46 @@ class TimatakaScraper:
             logger.error(f"Error discovering races: {str(e)}")
             raise TimatakaScrapingError(f"Failed to discover races: {str(e)}")
     
-    def _extract_race_info_from_link(self, link, soup: BeautifulSoup) -> Optional[Dict]:
+    def _parse_month_year_header(self, header_text: str) -> Optional[Dict]:
+        """Parse month and year from h3 header text like 'Sep 2025' or 'Ágú 2024'"""
+        if not header_text:
+            return None
+            
+        # Icelandic month abbreviations to numbers
+        icelandic_months = {
+            # Icelandic months
+            'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'maí': 5, 'jún': 6,
+            'júl': 7, 'ágú': 8, 'sep': 9, 'okt': 10, 'nóv': 11, 'des': 12,
+            # English abbreviations (common on timataka.net)
+            'january': 1, 'february': 2, 'march': 3, 'april': 4, 'may': 5, 'june': 6,
+            'july': 7, 'august': 8, 'september': 9, 'october': 10, 'november': 11, 'december': 12,
+            'aug': 8, 'jul': 7, 'jun': 6, 'dec': 12, 'nov': 11, 'oct': 10
+        }
+        
+        # Try to extract month and year pattern like "Sep 2025" or "Ágú 2024"
+        parts = header_text.lower().split()
+        if len(parts) >= 2:
+            month_str = parts[0]
+            year_str = parts[1]
+            
+            # Find matching month
+            month = None
+            for month_key, month_num in icelandic_months.items():
+                if month_str.startswith(month_key):
+                    month = month_num
+                    break
+            
+            # Parse year
+            try:
+                year = int(year_str)
+                if month and 2000 <= year <= 2030:  # Reasonable year range
+                    return {'month': month, 'year': year}
+            except ValueError:
+                pass
+        
+        return None
+    
+    def _extract_race_info_from_link(self, link, soup: BeautifulSoup, date_context: Optional[Dict] = None) -> Optional[Dict]:
         """Extract race information from a race link and its context"""
         try:
             href = link.get('href')
@@ -155,10 +202,13 @@ class TimatakaScraper:
             if race_name.lower() in skip_names:
                 return None
             
-            # Try to extract date from surrounding context
-            race_date = self._extract_date_from_context(link, soup)
+            # Try to extract date using the date context from h3 headers
+            race_date = self._extract_date_with_context(race_name, race_url, date_context)
             
-            # If no date found, try to parse from race name or URL
+            # If no date found with context, fall back to old methods
+            if not race_date:
+                race_date = self._extract_date_from_context(link, soup)
+                
             if not race_date:
                 race_date = self._extract_date_from_name(race_name)
             
@@ -174,6 +224,53 @@ class TimatakaScraper:
         except Exception as e:
             logger.warning(f"Error extracting race info from link: {str(e)}")
             return None
+    
+    def _extract_date_with_context(self, race_name: str, race_url: str, date_context: Optional[Dict]) -> Optional[datetime]:
+        """Extract race date using month/year context from h3 headers"""
+        if not date_context:
+            return None
+            
+        # Look for day information in race name or URL
+        day = self._extract_day_from_text(race_name) or self._extract_day_from_text(race_url)
+        
+        if day:
+            try:
+                return datetime(date_context['year'], date_context['month'], day)
+            except ValueError:
+                # Invalid date (e.g., Feb 30), fall back to mid-month
+                pass
+        
+        # If no specific day found, use mid-month as default
+        try:
+            return datetime(date_context['year'], date_context['month'], 15)
+        except ValueError:
+            return None
+    
+    def _extract_day_from_text(self, text: str) -> Optional[int]:
+        """Extract day number from text"""
+        if not text:
+            return None
+            
+        # Look for day patterns like "13-03" (13th day), "2024-03-15", "15.", etc.
+        day_patterns = [
+            r'\b(\d{1,2})\.',  # "15."
+            r'-(\d{1,2})-',    # "-15-"
+            r'(\d{1,2})-\d{1,2}-\d{4}',  # "15-03-2024"
+            r'\d{4}-\d{1,2}-(\d{1,2})',  # "2024-03-15"
+            r'(\d{1,2}) ',     # "15 " (day followed by space)
+        ]
+        
+        for pattern in day_patterns:
+            match = re.search(pattern, text)
+            if match:
+                try:
+                    day = int(match.group(1))
+                    if 1 <= day <= 31:
+                        return day
+                except (ValueError, IndexError):
+                    continue
+        
+        return None
     
     def _extract_date_from_url(self, url: str) -> Optional[datetime]:
         """Extract date from URL (e.g., from /racename2025/)"""

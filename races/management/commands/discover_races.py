@@ -55,7 +55,8 @@ class Command(BaseCommand):
                     f"Race discovery completed!\n"
                     f"  Discovered: {result['discovered']} races\n"
                     f"  New races saved: {result['new']}\n"
-                    f"  Already existing: {result['existing']}\n"
+                    f"  Existing (unchanged): {result['existing']}\n"
+                    f"  Updated with better dates: {result['updated']}\n"
                     f"  Errors: {result['errors']}"
                 )
             )

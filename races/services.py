@@ -262,6 +262,7 @@ class ScrapingService:
             'discovered': 0,
             'new': 0,
             'existing': 0,
+            'updated': 0,
             'errors': 0
         }
         
@@ -279,8 +280,22 @@ class ScrapingService:
                     existing_race = Race.objects.filter(source_url=race_info['url']).first()
                     
                     if existing_race:
-                        result['existing'] += 1
-                        logger.debug(f"Race already exists: {race_info['name']}")
+                        # Check if we should update the date (if current date is a placeholder)
+                        placeholder_dates = [
+                            datetime(2021, 1, 31).date(),
+                            datetime(2099, 12, 31).date()
+                        ]
+                        
+                        if existing_race.date in placeholder_dates and race_info['date']:
+                            # Update with better date information
+                            old_date = existing_race.date
+                            existing_race.date = race_info['date'].date() if hasattr(race_info['date'], 'date') else race_info['date']
+                            existing_race.save()
+                            result['updated'] += 1
+                            logger.info(f"Updated date for '{race_info['name']}': {old_date} -> {existing_race.date}")
+                        else:
+                            result['existing'] += 1
+                            logger.debug(f"Race already exists with good date: {race_info['name']}")
                         continue
                     
                     # Create new race record
