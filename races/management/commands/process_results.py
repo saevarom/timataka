@@ -134,36 +134,74 @@ class Command(BaseCommand):
                         )
                     continue
                 
-                # Fetch the results page
-                html_content = self._fetch_results_page(results_url)
+                race_total_saved = 0
+                race_total_scraped = 0
+                race_total_errors = 0
                 
-                if not html_content:
+                # Clear existing results once if overwriting
+                if self.overwrite:
+                    existing_count = Result.objects.filter(race=race).count()
+                    if existing_count > 0:
+                        Result.objects.filter(race=race).delete()
+                        if self.verbosity >= 2:
+                            self.stdout.write(f"    Deleted {existing_count} existing results")
+                
+                # Process both male and female results by modifying the URL parameter
+                gender_categories = [
+                    ('male', 'cat=m'),
+                    ('female', 'cat=f')
+                ]
+                
+                for gender_name, cat_param in gender_categories:
+                    # Create gender-specific URL by replacing cat=overall with the gender category
+                    if 'cat=overall' in results_url:
+                        gender_url = results_url.replace('cat=overall', cat_param)
+                    elif 'cat=' not in results_url:
+                        # Add gender category if no category exists
+                        separator = '&' if '?' in results_url else '?'
+                        gender_url = f"{results_url}{separator}{cat_param}"
+                    else:
+                        # Skip if URL has different category format
+                        continue
+                    
                     if self.verbosity >= 2:
-                        self.stdout.write(
-                            self.style.WARNING(f"  Skipping: Could not fetch results page")
-                        )
-                    continue
-                
-                # Process results
-                result_stats = self.service.scrape_and_save_race_results(
-                    html_content, 
-                    race.id, 
-                    overwrite=self.overwrite
-                )
+                        self.stdout.write(f"    Processing {gender_name} results: {gender_url}")
+                    
+                    # Fetch the results page for this gender
+                    html_content = self._fetch_results_page(gender_url)
+                    
+                    if not html_content:
+                        if self.verbosity >= 2:
+                            self.stdout.write(
+                                self.style.WARNING(f"    Skipping {gender_name}: Could not fetch results page")
+                            )
+                        continue
+                    
+                    # Process results for this gender (skip existing check since we already cleared above)
+                    result_stats = self.service.scrape_and_save_race_results(
+                        html_content, 
+                        race.id, 
+                        overwrite=False,  # Never overwrite within the gender loop
+                        gender=gender_name,
+                        skip_existing_check=True  # Skip check since we already handled it above
+                    )
+                    
+                    race_total_saved += result_stats['saved']
+                    race_total_scraped += result_stats['scraped'] 
+                    race_total_errors += result_stats['errors']
                 
                 success_count += 1
-                total_results_saved += result_stats['saved']
+                total_results_saved += race_total_saved
                 
                 if self.verbosity >= 2:
                     self.stdout.write(
                         self.style.SUCCESS(
-                            f"  ✓ Saved {result_stats['saved']} results "
-                            f"(scraped: {result_stats['scraped']}, "
-                            f"errors: {result_stats['errors']})"
+                            f"  ✓ Saved {race_total_saved} results total "
+                            f"(scraped: {race_total_scraped}, errors: {race_total_errors})"
                         )
                     )
                 
-                # Update race with results URL if not set
+                # Update race with results URL if not set (keep the original overall URL)
                 if not race.results_url:
                     race.results_url = results_url
                     race.save()

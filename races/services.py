@@ -4,6 +4,7 @@ from datetime import datetime
 import requests
 from bs4 import BeautifulSoup
 from django.db import transaction
+from django.db.models import Max
 from .scraper import TimatakaScraper, TimatakaScrapingError
 from .models import Race, Runner, Result, Split, Event
 
@@ -22,7 +23,8 @@ class ScrapingService:
         self.scraper = TimatakaScraper()
     
     def scrape_and_save_race_results(self, html_content: str, race_id: int, 
-                                   overwrite: bool = False) -> Dict[str, int]:
+                                   overwrite: bool = False, gender: str = None, 
+                                   skip_existing_check: bool = False) -> Dict[str, int]:
         """
         Scrape race results from HTML content and save to database.
         
@@ -30,6 +32,8 @@ class ScrapingService:
             html_content: Raw HTML content from Timataka results page
             race_id: ID of the race in database
             overwrite: Whether to overwrite existing results
+            gender: Gender category for these results ('male', 'female', or None for mixed)
+            skip_existing_check: Skip the check for existing results (used for gender-specific processing)
             
         Returns:
             Dict with counts: {'scraped': X, 'saved': Y, 'skipped': Z, 'errors': W}
@@ -50,27 +54,30 @@ class ScrapingService:
             results_data = self.scraper.scrape_race_results(html_content, race_id)
             result['scraped'] = results_data['results_count']
             
-            # Check if results already exist
-            existing_results = Result.objects.filter(race=race).count()
-            if existing_results > 0 and not overwrite:
-                logger.info(f"Results for race '{race.name}' already exist, skipping")
-                result['skipped'] = result['scraped']
-                return result
+            # Check if results already exist (unless skipping this check)
+            if not skip_existing_check:
+                existing_results = Result.objects.filter(race=race).count()
+                if existing_results > 0 and not overwrite:
+                    logger.info(f"Results for race '{race.name}' already exist, skipping")
+                    result['skipped'] = result['scraped']
+                    return result
             
             # Save results with transaction
             with transaction.atomic():
-                if overwrite and existing_results > 0:
+                if not skip_existing_check and overwrite:
                     # Delete existing results
-                    Result.objects.filter(race=race).delete()
-                    logger.info(f"Deleted {existing_results} existing results for race '{race.name}'")
+                    existing_results = Result.objects.filter(race=race).count()
+                    if existing_results > 0:
+                        Result.objects.filter(race=race).delete()
+                        logger.info(f"Deleted {existing_results} existing results for race '{race.name}'")
                 
                 # Save each result
                 for result_data in results_data['results']:
                     try:
-                        self._save_result_to_db(result_data, race)
+                        self._save_result_to_db(result_data, race, gender)
                         result['saved'] += 1
                     except Exception as e:
-                        logger.error(f"Error saving result for '{result_data.get('name', 'Unknown')}': {str(e)}")
+                        logger.error(f"Error saving result for '{result_data.get('name', 'Unknown')}' (gender={gender}): {str(e)}")
                         result['errors'] += 1
             
             return result
@@ -84,7 +91,7 @@ class ScrapingService:
             logger.error(f"Unexpected error in results scraping: {str(e)}")
             raise TimatakaScrapingError(f"Service error: {str(e)}")
     
-    def _save_result_to_db(self, result_data: Dict, race: Race) -> Result:
+    def _save_result_to_db(self, result_data: Dict, race: Race, gender: str = None) -> Result:
         """Save a single result to database"""
         # Get or create runner
         runner = self._get_or_create_runner(
@@ -92,16 +99,31 @@ class ScrapingService:
             result_data.get('year')
         )
         
+        # For gender-specific results, use gender_place for ranking within gender
+        # and calculate overall_place to avoid conflicts
+        if gender:
+            gender_place = result_data.get('rank', 0)
+            # Create a unique overall_place by adding offset based on gender and current max
+            existing_max = Result.objects.filter(race=race).aggregate(
+                max_place=Max('overall_place')
+            )['max_place'] or 0
+            overall_place = existing_max + result_data.get('rank', 0)
+        else:
+            gender_place = None
+            overall_place = result_data.get('rank', 0)
+        
         # Create result
         result = Result.objects.create(
             race=race,
             runner=runner,
             bib_number=result_data.get('bib', ''),
             club=result_data.get('club', ''),
+            gender=gender[0].upper() if gender else '',  # Convert 'male'/'female' to 'M'/'F'
             finish_time=result_data['finish_time'],
             chip_time=result_data.get('chip_time'),
             time_behind=result_data.get('time_behind'),
-            overall_place=result_data.get('rank', 0),
+            overall_place=overall_place,
+            gender_place=gender_place,
             status='finished'
         )
         
