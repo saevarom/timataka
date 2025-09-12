@@ -155,6 +155,9 @@ class TimatakaScraper:
             # Determine race type based on distance and description
             race_type = self._determine_race_type(race_description, distance_km)
             
+            # Extract overall results URL
+            results_url = self._extract_results_url(container)
+            
             # Build the race name
             race_name = f"{main_race_name} - {race_description}"
             
@@ -173,6 +176,7 @@ class TimatakaScraper:
                 'entry_fee': None,
                 'currency': 'ISK',
                 'source_url': source_url,
+                'results_url': results_url,
                 'start_time': date_info.get('time', ''),
             }
             
@@ -275,3 +279,16 @@ class TimatakaScraper:
             return '5k'
         else:
             return 'other'
+
+    def _extract_results_url(self, container) -> str:
+        """Extract the overall results URL from a race category container"""
+        # Look for links with 'cat=overall' parameter
+        overall_links = container.find_all('a', href=True)
+        
+        for link in overall_links:
+            href = link.get('href', '')
+            if 'cat=overall' in href:
+                return href
+        
+        # If no overall link found, return empty string
+        return ''

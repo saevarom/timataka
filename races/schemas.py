@@ -21,6 +21,8 @@ class RaceSchema(Schema):
     currency: str = "ISK"
     created_at: datetime
     updated_at: datetime
+    source_url: Optional[str] = None
+    results_url: Optional[str] = None
 
 
 class RaceCreateSchema(Schema):
@@ -38,6 +40,7 @@ class RaceCreateSchema(Schema):
     entry_fee: Optional[Decimal] = None
     currency: str = "ISK"
     source_url: Optional[str] = None
+    results_url: Optional[str] = None
 
 
 class ResultSchema(Schema):

@@ -33,6 +33,7 @@ class Race(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     source_url = models.URLField(blank=True, help_text="URL where this race data was scraped from")
+    results_url = models.URLField(blank=True, help_text="URL to the overall race results")
     
     class Meta:
         ordering = ['date']
