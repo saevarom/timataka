@@ -1,6 +1,6 @@
 import re
-from datetime import datetime
-from typing import List, Dict, Optional
+from datetime import datetime, timedelta
+from typing import List, Dict, Optional, Tuple
 from bs4 import BeautifulSoup
 from dateutil.parser import parse as parse_date
 import logging
@@ -21,6 +21,7 @@ class TimatakaScraper:
     - Main race name and date
     - Multiple race distances/categories
     - Start times for each race
+    - Race results with splits and times
     """
     
     def __init__(self):
@@ -292,3 +293,259 @@ class TimatakaScraper:
         
         # If no overall link found, return empty string
         return ''
+
+    def scrape_race_results(self, html_content: str, race_id: int) -> Dict:
+        """
+        Scrape race results from a Timataka.net results page.
+        
+        Args:
+            html_content: Raw HTML content from a Timataka results page
+            race_id: ID of the race in the database
+            
+        Returns:
+            Dictionary with results data and metadata
+            
+        Raises:
+            TimatakaScrapingError: If scraping fails or data is invalid
+        """
+        try:
+            soup = BeautifulSoup(html_content, 'lxml')
+            
+            # Extract race name from the page
+            race_name = self._extract_race_name_from_results(soup)
+            
+            # Find the results table
+            results_table = self._find_results_table(soup)
+            if not results_table:
+                raise TimatakaScrapingError("No results table found in the HTML")
+            
+            # Extract column headers to understand the table structure
+            headers = self._extract_table_headers(results_table)
+            
+            # Extract all result rows
+            results = self._extract_result_rows(results_table, headers)
+            
+            return {
+                'race_id': race_id,
+                'race_name': race_name,
+                'results_count': len(results),
+                'headers': headers,
+                'results': results
+            }
+            
+        except Exception as e:
+            logger.error(f"Error scraping race results: {str(e)}")
+            raise TimatakaScrapingError(f"Failed to scrape race results: {str(e)}")
+    
+    def _extract_race_name_from_results(self, soup: BeautifulSoup) -> str:
+        """Extract race name from results page"""
+        # Try h2 inside ibox-title first
+        h2_tag = soup.find('div', class_='ibox-title')
+        if h2_tag:
+            h2 = h2_tag.find('h2')
+            if h2:
+                return h2.get_text().strip()
+        
+        # Fallback to page title
+        title_tag = soup.find('title')
+        if title_tag:
+            title_text = title_tag.get_text().strip()
+            if 'TÍMATAKA:' in title_text:
+                return title_text.split('TÍMATAKA:')[-1].strip()
+            return title_text
+        
+        return "Unknown Race"
+    
+    def _find_results_table(self, soup: BeautifulSoup) -> Optional[BeautifulSoup]:
+        """Find the main results table in the page"""
+        # Look for table with class 'table table-striped'
+        table = soup.find('table', class_='table table-striped')
+        return table
+    
+    def _extract_table_headers(self, table: BeautifulSoup) -> List[str]:
+        """Extract and normalize table headers"""
+        headers = []
+        thead = table.find('thead')
+        if thead:
+            header_row = thead.find('tr')
+            if header_row:
+                for th in header_row.find_all('th'):
+                    header_text = th.get_text().strip().lower()
+                    # Map common headers to standardized names
+                    if header_text in ['rank', 'place']:
+                        headers.append('rank')
+                    elif header_text in ['bib', 'number']:
+                        headers.append('bib')
+                    elif header_text in ['name', 'participant']:
+                        headers.append('name')
+                    elif header_text in ['year', 'birth year']:
+                        headers.append('year')
+                    elif header_text in ['club', 'team']:
+                        headers.append('club')
+                    elif header_text in ['split', 'splits']:
+                        headers.append('split')
+                    elif header_text in ['time', 'finish time']:
+                        headers.append('time')
+                    elif header_text in ['behind', 'time behind']:
+                        headers.append('behind')
+                    elif header_text in ['chiptime', 'chip time']:
+                        headers.append('chiptime')
+                    else:
+                        headers.append(header_text if header_text else 'unknown')
+        return headers
+    
+    def _extract_result_rows(self, table: BeautifulSoup, headers: List[str]) -> List[Dict]:
+        """Extract all result rows from the table"""
+        results = []
+        tbody = table.find('tbody')
+        if not tbody:
+            return results
+        
+        for row in tbody.find_all('tr'):
+            cells = row.find_all('td')
+            if len(cells) < len(headers):
+                continue  # Skip incomplete rows
+            
+            result_data = {}
+            
+            for i, header in enumerate(headers):
+                if i < len(cells):
+                    cell_text = cells[i].get_text().strip()
+                    
+                    if header == 'rank':
+                        result_data['rank'] = self._parse_rank(cell_text)
+                    elif header == 'bib':
+                        result_data['bib'] = cell_text
+                    elif header == 'name':
+                        result_data['name'] = cell_text
+                    elif header == 'year':
+                        result_data['year'] = self._parse_year(cell_text)
+                    elif header == 'club':
+                        result_data['club'] = cell_text
+                    elif header == 'split':
+                        result_data['splits'] = self._parse_splits(cells[i])
+                    elif header == 'time':
+                        result_data['finish_time'] = self._parse_time(cell_text)
+                    elif header == 'behind':
+                        result_data['time_behind'] = self._parse_time_behind(cell_text)
+                    elif header == 'chiptime':
+                        result_data['chip_time'] = self._parse_time(cell_text)
+                    else:
+                        result_data[header] = cell_text
+            
+            if result_data.get('name') and result_data.get('finish_time'):
+                results.append(result_data)
+        
+        return results
+    
+    def _parse_rank(self, text: str) -> Optional[int]:
+        """Parse rank/place number"""
+        if not text or text == '':
+            return None
+        try:
+            return int(text.strip())
+        except ValueError:
+            return None
+    
+    def _parse_year(self, text: str) -> Optional[int]:
+        """Parse birth year"""
+        if not text or text == '':
+            return None
+        try:
+            year = int(text.strip())
+            if 1900 <= year <= 2020:
+                return year
+        except ValueError:
+            pass
+        return None
+    
+    def _parse_time(self, text: str) -> Optional[timedelta]:
+        """Parse time string to timedelta"""
+        if not text or text.strip() == '':
+            return None
+        
+        # Clean the text
+        time_str = text.strip()
+        
+        # Handle format like "03:11:35" (hours:minutes:seconds)
+        time_pattern = r'(\d{1,2}):(\d{2}):(\d{2})'
+        match = re.search(time_pattern, time_str)
+        
+        if match:
+            hours = int(match.group(1))
+            minutes = int(match.group(2))
+            seconds = int(match.group(3))
+            return timedelta(hours=hours, minutes=minutes, seconds=seconds)
+        
+        return None
+    
+    def _parse_time_behind(self, text: str) -> Optional[timedelta]:
+        """Parse time behind (like '+45:47' or '+01:02:51')"""
+        if not text or text.strip() == '' or text.strip() == '+':
+            return None
+        
+        # Remove the '+' sign and parse
+        time_str = text.strip().lstrip('+')
+        
+        # Handle format like "45:47" (minutes:seconds) or "01:02:51" (hours:minutes:seconds)
+        if time_str.count(':') == 1:
+            # Format: MM:SS
+            parts = time_str.split(':')
+            if len(parts) == 2:
+                try:
+                    minutes = int(parts[0])
+                    seconds = int(parts[1])
+                    return timedelta(minutes=minutes, seconds=seconds)
+                except ValueError:
+                    pass
+        elif time_str.count(':') == 2:
+            # Format: HH:MM:SS
+            return self._parse_time(time_str)
+        
+        return None
+    
+    def _parse_splits(self, cell_element) -> List[Dict[str, str]]:
+        """Parse split times from HTML cell element into structured data"""
+        splits = []
+        
+        # Get the HTML content of the cell
+        cell_html = str(cell_element)
+        
+        if not cell_html or cell_html.strip() == '':
+            return splits
+        
+        # Split by <br> tags to get individual split lines
+        split_lines = []
+        
+        # Handle different br tag formats
+        split_patterns = [r'<br\s*/?>', r'<br>', r'</br>']
+        split_text = cell_html
+        
+        for pattern in split_patterns:
+            split_text = re.sub(pattern, '\n', split_text, flags=re.IGNORECASE)
+        
+        # Remove HTML tags and get lines
+        clean_text = BeautifulSoup(split_text, 'html.parser').get_text()
+        lines = clean_text.split('\n')
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            
+            # Parse format like "00:58:05 (Hafravatn)"
+            pattern = r'(\d{1,2}:\d{2}:\d{2})\s*\(([^)]+)\)'
+            match = re.search(pattern, line)
+            
+            if match:
+                time_str = match.group(1)
+                location = match.group(2).strip()
+                
+                time_delta = self._parse_time(time_str)
+                if time_delta:
+                    splits.append({
+                        'time': time_delta,
+                        'location': location
+                    })
+        
+        return splits

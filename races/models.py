@@ -2,6 +2,32 @@ from django.db import models
 from django.core.validators import MinValueValidator, MaxValueValidator
 
 
+class Runner(models.Model):
+    """Model representing a unique runner/participant"""
+    
+    name = models.CharField(max_length=200)
+    birth_year = models.IntegerField(null=True, blank=True, validators=[MinValueValidator(1900), MaxValueValidator(2020)])
+    gender = models.CharField(max_length=1, choices=[('M', 'Male'), ('F', 'Female')], blank=True)
+    nationality = models.CharField(max_length=3, default='ISL', help_text="ISO 3166-1 alpha-3 country code")
+    
+    # Metadata
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        unique_together = ['name', 'birth_year']
+        indexes = [
+            models.Index(fields=['name']),
+            models.Index(fields=['birth_year']),
+            models.Index(fields=['name', 'birth_year']),
+        ]
+    
+    def __str__(self):
+        if self.birth_year:
+            return f"{self.name} ({self.birth_year})"
+        return self.name
+
+
 class Race(models.Model):
     """Model representing a running race/competition"""
     
@@ -51,16 +77,21 @@ class Result(models.Model):
     """Model representing a race result for a participant"""
     
     race = models.ForeignKey(Race, on_delete=models.CASCADE, related_name='results')
+    runner = models.ForeignKey(Runner, on_delete=models.CASCADE, related_name='results', null=True, blank=True)
     bib_number = models.CharField(max_length=20, blank=True)
-    participant_name = models.CharField(max_length=200)
+    club = models.CharField(max_length=200, blank=True, help_text="Running club or team")
+    
+    # Legacy fields for migration
+    participant_name = models.CharField(max_length=200, blank=True)
     age = models.IntegerField(null=True, blank=True, validators=[MinValueValidator(5), MaxValueValidator(120)])
     gender = models.CharField(max_length=1, choices=[('M', 'Male'), ('F', 'Female')], blank=True)
     nationality = models.CharField(max_length=3, default='ISL', help_text="ISO 3166-1 alpha-3 country code")
-    club = models.CharField(max_length=200, blank=True, help_text="Running club or team")
     
     # Time results
     finish_time = models.DurationField(help_text="Total race time")
     gun_time = models.DurationField(null=True, blank=True, help_text="Time from gun start")
+    chip_time = models.DurationField(null=True, blank=True, help_text="Chip/net time")
+    time_behind = models.DurationField(null=True, blank=True, help_text="Time behind winner")
     
     # Placement
     overall_place = models.IntegerField(validators=[MinValueValidator(1)])
@@ -90,6 +121,8 @@ class Result(models.Model):
         ]
     
     def __str__(self):
+        if self.runner:
+            return f"{self.runner.name} - {self.race.name} (#{self.overall_place})"
         return f"{self.participant_name} - {self.race.name} (#{self.overall_place})"
 
 
@@ -97,13 +130,13 @@ class Split(models.Model):
     """Model representing split times during a race"""
     
     result = models.ForeignKey(Result, on_delete=models.CASCADE, related_name='splits')
-    distance_km = models.FloatField(validators=[MinValueValidator(0)])
-    split_time = models.DurationField(help_text="Time at this split point")
-    cumulative_time = models.DurationField(help_text="Total time from start to this split")
+    split_name = models.CharField(max_length=100, help_text="Name of the split point (e.g., 'Hafravatn')")
+    distance_km = models.FloatField(null=True, blank=True, validators=[MinValueValidator(0)])
+    split_time = models.DurationField(help_text="Cumulative time from start to this split")
     
     class Meta:
-        ordering = ['distance_km']
-        unique_together = ['result', 'distance_km']
+        ordering = ['split_time']
+        unique_together = ['result', 'split_name']
     
     def __str__(self):
-        return f"{self.result.participant_name} - {self.distance_km}km: {self.split_time}"
+        return f"{self.result.runner.name} - {self.split_name}: {self.split_time}"

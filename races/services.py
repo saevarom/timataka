@@ -1,7 +1,8 @@
 from typing import List, Dict, Optional
 import logging
+from django.db import transaction
 from .scraper import TimatakaScraper, TimatakaScrapingError
-from .models import Race
+from .models import Race, Runner, Result, Split
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +17,134 @@ class ScrapingService:
     
     def __init__(self):
         self.scraper = TimatakaScraper()
+    
+    def scrape_and_save_race_results(self, html_content: str, race_id: int, 
+                                   overwrite: bool = False) -> Dict[str, int]:
+        """
+        Scrape race results from HTML content and save to database.
+        
+        Args:
+            html_content: Raw HTML content from Timataka results page
+            race_id: ID of the race in database
+            overwrite: Whether to overwrite existing results
+            
+        Returns:
+            Dict with counts: {'scraped': X, 'saved': Y, 'skipped': Z, 'errors': W}
+        """
+        result = {
+            'scraped': 0,
+            'saved': 0,
+            'skipped': 0,
+            'updated': 0,
+            'errors': 0
+        }
+        
+        try:
+            # Get the race
+            race = Race.objects.get(id=race_id)
+            
+            # Scrape results data
+            results_data = self.scraper.scrape_race_results(html_content, race_id)
+            result['scraped'] = results_data['results_count']
+            
+            # Check if results already exist
+            existing_results = Result.objects.filter(race=race).count()
+            if existing_results > 0 and not overwrite:
+                logger.info(f"Results for race '{race.name}' already exist, skipping")
+                result['skipped'] = result['scraped']
+                return result
+            
+            # Save results with transaction
+            with transaction.atomic():
+                if overwrite and existing_results > 0:
+                    # Delete existing results
+                    Result.objects.filter(race=race).delete()
+                    logger.info(f"Deleted {existing_results} existing results for race '{race.name}'")
+                
+                # Save each result
+                for result_data in results_data['results']:
+                    try:
+                        self._save_result_to_db(result_data, race)
+                        result['saved'] += 1
+                    except Exception as e:
+                        logger.error(f"Error saving result for '{result_data.get('name', 'Unknown')}': {str(e)}")
+                        result['errors'] += 1
+            
+            return result
+            
+        except Race.DoesNotExist:
+            raise TimatakaScrapingError(f"Race with ID {race_id} not found")
+        except TimatakaScrapingError as e:
+            logger.error(f"Scraping failed: {str(e)}")
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error in results scraping: {str(e)}")
+            raise TimatakaScrapingError(f"Service error: {str(e)}")
+    
+    def _save_result_to_db(self, result_data: Dict, race: Race) -> Result:
+        """Save a single result to database"""
+        # Get or create runner
+        runner = self._get_or_create_runner(
+            result_data['name'], 
+            result_data.get('year')
+        )
+        
+        # Create result
+        result = Result.objects.create(
+            race=race,
+            runner=runner,
+            bib_number=result_data.get('bib', ''),
+            club=result_data.get('club', ''),
+            finish_time=result_data['finish_time'],
+            chip_time=result_data.get('chip_time'),
+            time_behind=result_data.get('time_behind'),
+            overall_place=result_data.get('rank', 0),
+            status='finished'
+        )
+        
+        # Save splits if they exist
+        splits_data = result_data.get('splits', [])
+        for split_data in splits_data:
+            Split.objects.create(
+                result=result,
+                split_name=split_data['location'],
+                split_time=split_data['time']
+            )
+        
+        return result
+    
+    def _get_or_create_runner(self, name: str, birth_year: Optional[int]) -> Runner:
+        """Get or create a runner by name and birth year"""
+        # Try to find existing runner by name and birth year
+        if birth_year:
+            runner, created = Runner.objects.get_or_create(
+                name=name,
+                birth_year=birth_year,
+                defaults={'nationality': 'ISL'}
+            )
+        else:
+            # Try to find by name only
+            existing_runners = Runner.objects.filter(name=name)
+            if existing_runners.exists():
+                # If multiple runners with same name, prefer one with birth year
+                runner_with_year = existing_runners.filter(birth_year__isnull=False).first()
+                if runner_with_year:
+                    return runner_with_year
+                else:
+                    return existing_runners.first()
+            else:
+                # Create new runner without birth year
+                runner = Runner.objects.create(
+                    name=name,
+                    birth_year=birth_year,
+                    nationality='ISL'
+                )
+                created = True
+        
+        if created:
+            logger.info(f"Created new runner: {runner}")
+        
+        return runner
     
     def scrape_and_save_races(self, html_content: str, source_url: str = "", 
                               overwrite: bool = False) -> Dict[str, int]:
