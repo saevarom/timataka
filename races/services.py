@@ -95,7 +95,8 @@ class ScrapingService:
         # Get or create runner
         runner = self._get_or_create_runner(
             result_data['name'], 
-            result_data.get('year')
+            result_data.get('year'),
+            gender[0].upper() if gender else ''  # Convert 'male'/'female' to 'M'/'F'
         )
         
         # Create result
@@ -104,7 +105,6 @@ class ScrapingService:
             runner=runner,
             bib_number=result_data.get('bib', ''),
             club=result_data.get('club', ''),
-            gender=gender[0].upper() if gender else '',  # Convert 'male'/'female' to 'M'/'F'
             finish_time=result_data['finish_time'],
             chip_time=result_data.get('chip_time'),
             time_behind=result_data.get('time_behind'),
@@ -122,15 +122,19 @@ class ScrapingService:
         
         return result
     
-    def _get_or_create_runner(self, name: str, birth_year: Optional[int]) -> Runner:
+    def _get_or_create_runner(self, name: str, birth_year: Optional[int], gender: str = '') -> Runner:
         """Get or create a runner by name and birth year"""
         # Try to find existing runner by name and birth year
         if birth_year:
             runner, created = Runner.objects.get_or_create(
                 name=name,
                 birth_year=birth_year,
-                defaults={'nationality': 'ISL'}
+                defaults={'nationality': 'ISL', 'gender': gender}
             )
+            # Update gender if not set and we have gender info
+            if not created and gender and not runner.gender:
+                runner.gender = gender
+                runner.save()
         else:
             # Try to find by name only
             existing_runners = Runner.objects.filter(name=name)
@@ -138,15 +142,21 @@ class ScrapingService:
                 # If multiple runners with same name, prefer one with birth year
                 runner_with_year = existing_runners.filter(birth_year__isnull=False).first()
                 if runner_with_year:
-                    return runner_with_year
+                    runner = runner_with_year
                 else:
-                    return existing_runners.first()
+                    runner = existing_runners.first()
+                
+                # Update gender if not set and we have gender info
+                if gender and not runner.gender:
+                    runner.gender = gender
+                    runner.save()
             else:
                 # Create new runner without birth year
                 runner = Runner.objects.create(
                     name=name,
                     birth_year=birth_year,
-                    nationality='ISL'
+                    nationality='ISL',
+                    gender=gender
                 )
                 created = True
         

@@ -120,7 +120,6 @@ class Result(models.Model):
     # Legacy fields for migration
     participant_name = models.CharField(max_length=200, blank=True)
     age = models.IntegerField(null=True, blank=True, validators=[MinValueValidator(5), MaxValueValidator(120)])
-    gender = models.CharField(max_length=1, choices=[('M', 'Male'), ('F', 'Female')], blank=True)
     nationality = models.CharField(max_length=3, default='ISL', help_text="ISO 3166-1 alpha-3 country code")
     
     # Time results

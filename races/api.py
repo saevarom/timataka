@@ -200,7 +200,7 @@ def list_race_results(
     queryset = race.results.all()
     
     if gender:
-        queryset = queryset.filter(gender=gender)
+        queryset = queryset.filter(runner__gender=gender)
     if status:
         queryset = queryset.filter(status=status)
     

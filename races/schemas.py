@@ -49,7 +49,6 @@ class ResultSchema(Schema):
     bib_number: Optional[str] = None
     participant_name: str
     age: Optional[int] = None
-    gender: Optional[str] = None
     nationality: str = "ISL"
     club: Optional[str] = None
     finish_time: timedelta
@@ -63,7 +62,6 @@ class ResultCreateSchema(Schema):
     bib_number: Optional[str] = None
     participant_name: str
     age: Optional[int] = None
-    gender: Optional[str] = None
     nationality: str = "ISL"
     club: Optional[str] = None
     finish_time: timedelta
