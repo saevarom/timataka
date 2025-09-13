@@ -60,8 +60,8 @@ class RaceAdmin(admin.ModelAdmin):
 
 @admin.register(Result)
 class ResultAdmin(admin.ModelAdmin):
-    list_display = ['get_participant_name', 'race', 'finish_time', 'status']
-    list_filter = ['status', 'race__date', 'race__race_type']
+    list_display = ['get_participant_name', 'get_gender', 'race', 'finish_time', 'status']
+    list_filter = ['status', 'race__date', 'race__race_type', 'runner__gender']
     search_fields = ['runner__name', 'participant_name', 'club']
     ordering = ['race', 'finish_time']
     list_per_page = 100  # Limit items per page for performance
@@ -70,6 +70,10 @@ class ResultAdmin(admin.ModelAdmin):
     def get_participant_name(self, obj):
         return obj.runner.name if obj.runner else obj.participant_name
     get_participant_name.short_description = 'Participant Name'
+    
+    def get_gender(self, obj):
+        return obj.runner.gender if obj.runner else ''
+    get_gender.short_description = 'Gender'
     
     def get_queryset(self, request):
         """Optimize queryset for admin list view"""
