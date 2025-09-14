@@ -99,31 +99,51 @@ class ScrapingService:
             gender[0].upper() if gender else ''  # Convert 'male'/'female' to 'M'/'F'
         )
         
-        # Create result
-        result = Result.objects.create(
+        # Create or get result (prevent duplicates for same runner in same race)
+        result, result_created = Result.objects.get_or_create(
             race=race,
             runner=runner,
-            bib_number=result_data.get('bib', ''),
-            club=result_data.get('club', ''),
-            finish_time=result_data['finish_time'],
-            chip_time=result_data.get('chip_time'),
-            time_behind=result_data.get('time_behind'),
-            status='finished'
+            defaults={
+                'bib_number': result_data.get('bib', ''),
+                'club': result_data.get('club', ''),
+                'finish_time': result_data['finish_time'],
+                'chip_time': result_data.get('chip_time'),
+                'time_behind': result_data.get('time_behind'),
+                'status': 'finished'
+            }
         )
         
-        # Save splits if they exist
+        # If result already existed, optionally update fields
+        if not result_created:
+            # Update fields if they're different (e.g., better bib number)
+            updated = False
+            if result_data.get('bib', '') and not result.bib_number:
+                result.bib_number = result_data.get('bib', '')
+                updated = True
+            if result_data.get('club', '') and not result.club:
+                result.club = result_data.get('club', '')
+                updated = True
+            if updated:
+                result.save()
+        
+        # Save splits if they exist (only if result was created or no splits exist)
         splits_data = result_data.get('splits', [])
-        for split_data in splits_data:
-            Split.objects.create(
-                result=result,
-                split_name=split_data['location'],
-                split_time=split_data['time']
-            )
+        if splits_data and (result_created or not result.splits.exists()):
+            for split_data in splits_data:
+                Split.objects.get_or_create(
+                    result=result,
+                    split_name=split_data['location'],
+                    defaults={
+                        'split_time': split_data['time']
+                    }
+                )
         
         return result
     
     def _get_or_create_runner(self, name: str, birth_year: Optional[int], gender: str = '') -> Runner:
         """Get or create a runner by name and birth year"""
+        created = False  # Initialize created variable
+        
         # Try to find existing runner by name and birth year
         if birth_year:
             runner, created = Runner.objects.get_or_create(
@@ -150,6 +170,7 @@ class ScrapingService:
                 if gender and not runner.gender:
                     runner.gender = gender
                     runner.save()
+                # created is already False, so no need to set it
             else:
                 # Create new runner without birth year
                 runner = Runner.objects.create(
