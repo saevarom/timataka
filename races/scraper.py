@@ -435,7 +435,7 @@ class TimatakaScraper:
             
             # Look for patterns like "5 tindar (35 km)" or similar
             distance_match = re.search(r'(\d+\.?\d*)\s?(km|kílómetr)', text, re.IGNORECASE)
-            if distance_match and len(text) > 5:  # Meaningful heading
+            if distance_match and len(text) >= 4:  # Changed from > 5 to >= 4 to catch short distance headings like "12 km"
                 # This heading contains distance info - it's likely a race description
                 distance = float(distance_match.group(1))
                 race_descriptions[text] = distance
