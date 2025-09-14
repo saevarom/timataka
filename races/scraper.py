@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Tuple
 from bs4 import BeautifulSoup
 from dateutil.parser import parse as parse_date
+from django.utils import timezone
 import logging
 
 logger = logging.getLogger(__name__)
@@ -38,6 +39,47 @@ class TimatakaScraper:
             'tindar': 'trail',
         }
     
+    def _fetch_html_with_cache(self, url: str, cache_obj=None, force_refresh: bool = False) -> str:
+        """
+        Fetch HTML content with caching support.
+        
+        Args:
+            url: URL to fetch
+            cache_obj: Model instance with cached_html and html_fetched_at fields
+            force_refresh: If True, always fetch from web and update cache
+            
+        Returns:
+            HTML content as string
+        """
+        try:
+            # If we have a cache object and cached HTML, use it unless force_refresh is True
+            if cache_obj and cache_obj.cached_html and not force_refresh:
+                logger.info(f"Using cached HTML for URL: {url}")
+                return cache_obj.cached_html
+            
+            # Fetch from web
+            logger.info(f"Fetching HTML from web for URL: {url}")
+            response = requests.get(url, timeout=30)
+            response.raise_for_status()
+            html_content = response.text
+            
+            # Update cache if cache object is provided
+            if cache_obj:
+                cache_obj.cached_html = html_content
+                cache_obj.html_fetched_at = timezone.now()
+                cache_obj.save(update_fields=['cached_html', 'html_fetched_at'])
+                logger.info(f"Cached HTML for URL: {url}")
+            
+            return html_content
+            
+        except requests.exceptions.RequestException as e:
+            # If web fetch fails but we have cached content, use it as fallback
+            if cache_obj and cache_obj.cached_html:
+                logger.warning(f"Failed to fetch {url}, using cached content: {str(e)}")
+                return cache_obj.cached_html
+            else:
+                logger.error(f"Failed to fetch {url} and no cache available: {str(e)}")
+                raise TimatakaScrapingError(f"Failed to fetch {url}: {str(e)}")
     def scrape_race_data(self, html_content: str, source_url: str = "") -> List[Dict]:
         """
         Scrape race data from Timataka.net HTML content.
@@ -144,12 +186,14 @@ class TimatakaScraper:
             logger.error(f"Error discovering races: {str(e)}")
             raise TimatakaScrapingError(f"Failed to discover races: {str(e)}")
     
-    def scrape_races_from_event_url(self, event_url: str) -> List[Dict]:
+    def scrape_races_from_event_url(self, event_url: str, event_obj=None, force_refresh: bool = False) -> List[Dict]:
         """
         Scrape individual races from an event page URL.
         
         Args:
             event_url: URL to the event page on timataka.net
+            event_obj: Optional Event model instance for HTML caching
+            force_refresh: If True, bypass cache and fetch from web
             
         Returns:
             List of dictionaries containing race information:
@@ -170,19 +214,18 @@ class TimatakaScraper:
                 # This is a direct results URL that needs to be treated as a single race
                 return self._handle_direct_results_url(event_url)
             
-            # Fetch the event page
-            response = requests.get(event_url, timeout=30)
-            response.raise_for_status()
+            # Fetch the event page with caching
+            html_content = self._fetch_html_with_cache(event_url, event_obj, force_refresh)
 
             # Use a specialized method for extracting races from event pages
-            races = self.scrape_race_data_from_event_page(response.text, event_url)
+            races = self.scrape_race_data_from_event_page(html_content, event_url)
 
             logger.info(f"Scraped {len(races)} races from event URL: {event_url}")
             return races
 
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Error fetching event URL {event_url}: {str(e)}")
-            raise TimatakaScrapingError(f"Failed to fetch event page: {str(e)}")
+        except TimatakaScrapingError:
+            # Re-raise our custom errors
+            raise
         except Exception as e:
             logger.error(f"Error scraping races from event: {str(e)}")
             raise TimatakaScrapingError(f"Failed to scrape races from event: {str(e)}")
@@ -1117,6 +1160,30 @@ class TimatakaScraper:
         # If no overall link found, return empty string
         return ''
 
+    def scrape_race_results_from_url(self, results_url: str, race_id: int, race_obj=None, force_refresh: bool = False) -> Dict:
+        """
+        Scrape race results from a Timataka.net results URL with caching support.
+        
+        Args:
+            results_url: URL to the race results page
+            race_id: ID of the race in the database
+            race_obj: Optional Race model instance for HTML caching
+            force_refresh: If True, bypass cache and fetch from web
+            
+        Returns:
+            Dictionary containing race results data
+        """
+        try:
+            # Fetch HTML with caching
+            html_content = self._fetch_html_with_cache(results_url, race_obj, force_refresh)
+            
+            # Process the HTML content
+            return self.scrape_race_results(html_content, race_id)
+            
+        except Exception as e:
+            logger.error(f"Error scraping race results from URL {results_url}: {str(e)}")
+            raise TimatakaScrapingError(f"Failed to scrape race results: {str(e)}")
+
     def scrape_race_results(self, html_content: str, race_id: int) -> Dict:
         """
         Scrape race results from a Timataka.net results page.
@@ -1410,13 +1477,15 @@ class TimatakaScraper:
         
         return splits
 
-    def _handle_direct_results_url(self, results_url: str) -> List[Dict]:
+    def _handle_direct_results_url(self, results_url: str, race_obj=None, force_refresh: bool = False) -> List[Dict]:
         """
         Handle URLs that are already results URLs (contain /urslit/ and race parameters).
         These should be treated as single races with enhanced URLs.
         
         Args:
             results_url: URL that's already a results URL like /urslit/?race=1
+            race_obj: Optional Race model instance for HTML caching
+            force_refresh: If True, bypass cache and fetch from web
             
         Returns:
             List with a single race dictionary
@@ -1426,9 +1495,8 @@ class TimatakaScraper:
             enhanced_url = self._ensure_overall_category(results_url)
             
             # Extract race information from the URL and page content
-            response = requests.get(results_url, timeout=30)
-            response.raise_for_status()
-            soup = BeautifulSoup(response.text, 'lxml')
+            html_content = self._fetch_html_with_cache(results_url, race_obj, force_refresh)
+            soup = BeautifulSoup(html_content, 'lxml')
             
             # Extract race name from page title or content
             race_name = self._extract_main_race_name(soup)

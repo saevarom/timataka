@@ -27,11 +27,17 @@ class Command(BaseCommand):
             action='store_true',
             help='Show what would be processed without actually processing'
         )
+        parser.add_argument(
+            '--force-refresh',
+            action='store_true',
+            help='Force refresh of cached HTML from web'
+        )
 
     def handle(self, *args, **options):
         event_ids = options.get('event_ids')
         limit = options.get('limit')
         dry_run = options['dry_run']
+        force_refresh = options['force_refresh']
         
         self.stdout.write("Starting event processing to extract races...")
         
@@ -73,7 +79,8 @@ class Command(BaseCommand):
             # Actually process events
             result = service.process_events_and_extract_races(
                 event_ids=event_ids, 
-                limit=limit
+                limit=limit,
+                force_refresh=force_refresh
             )
             
             # Display results

@@ -43,11 +43,17 @@ class Command(BaseCommand):
             action='store_true',
             help='Show what would be processed without actually processing'
         )
+        parser.add_argument(
+            '--force-refresh',
+            action='store_true',
+            help='Force refresh of cached HTML from web'
+        )
 
     def handle(self, *args, **options):
         self.verbosity = options.get('verbosity', 1)
         self.dry_run = options.get('dry_run', False)
         self.overwrite = options.get('overwrite', False)
+        self.force_refresh = options.get('force_refresh', False)
         self.service = ScrapingService()
         
         if self.verbosity >= 1:
@@ -167,8 +173,8 @@ class Command(BaseCommand):
                     if self.verbosity >= 2:
                         self.stdout.write(f"    Processing {gender_name} results: {gender_url}")
                     
-                    # Fetch the results page for this gender
-                    html_content = self._fetch_results_page(gender_url)
+                    # Fetch the results page for this gender (with caching)
+                    html_content = self._fetch_results_page(gender_url, race=race)
                     
                     if not html_content:
                         if self.verbosity >= 2:
@@ -313,13 +319,18 @@ class Command(BaseCommand):
             # Fallback to original URL
             return event_url
 
-    def _fetch_results_page(self, url):
-        """Fetch the HTML content of a results page"""
+    def _fetch_results_page(self, url, race=None):
+        """Fetch the HTML content of a results page with caching support"""
         try:
-            response = requests.get(url, timeout=10)
-            response.raise_for_status()
-            return response.text
-        except requests.exceptions.RequestException as e:
+            # Use the scraper's cached HTML method if we have a race object
+            service = ScrapingService()
+            html_content = service.scraper._fetch_html_with_cache(
+                url, 
+                cache_obj=race, 
+                force_refresh=self.force_refresh
+            )
+            return html_content
+        except Exception as e:
             logger.error(f"Error fetching results page {url}: {str(e)}")
             return None
 

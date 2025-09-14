@@ -45,6 +45,10 @@ class Event(models.Model):
     last_processed = models.DateTimeField(null=True, blank=True)
     processing_error = models.TextField(blank=True)
     
+    # HTML caching
+    cached_html = models.TextField(blank=True, help_text="Cached HTML content from the event page")
+    html_fetched_at = models.DateTimeField(null=True, blank=True, help_text="When the HTML was last fetched")
+    
     # Metadata
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -96,6 +100,10 @@ class Race(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     source_url = models.URLField(blank=True, help_text="URL where this race data was scraped from")
     results_url = models.URLField(blank=True, help_text="URL to the overall race results")
+    
+    # HTML caching
+    cached_html = models.TextField(blank=True, help_text="Cached HTML content from the results page")
+    html_fetched_at = models.DateTimeField(null=True, blank=True, help_text="When the HTML was last fetched")
     
     class Meta:
         ordering = ['date']

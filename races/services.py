@@ -425,13 +425,14 @@ class ScrapingService:
         else:
             return f"{url}/urslit/"
 
-    def process_events_and_extract_races(self, event_ids: List[int] = None, limit: int = None) -> Dict[str, int]:
+    def process_events_and_extract_races(self, event_ids: List[int] = None, limit: int = None, force_refresh: bool = False) -> Dict[str, int]:
         """
         Process Event records and extract individual Race records from their detail pages.
         
         Args:
             event_ids: List of specific event IDs to process. If None, processes unprocessed events.
             limit: Maximum number of events to process in this run
+            force_refresh: If True, bypass cache and fetch HTML from web
             
         Returns:
             Dict with counts: {'processed': X, 'races_created': Y, 'errors': Z}
@@ -464,8 +465,8 @@ class ScrapingService:
                     event.last_processed = datetime.now()
                     event.save()
                     
-                    # Scrape races from the event URL
-                    races_data = self.scraper.scrape_races_from_event_url(event.url)
+                    # Scrape races from the event URL (with caching support)
+                    races_data = self.scraper.scrape_races_from_event_url(event.url, event_obj=event, force_refresh=force_refresh)
                     
                     # Create Race objects for each race found
                     races_created_count = 0
