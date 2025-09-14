@@ -26,6 +26,65 @@ class Runner(models.Model):
         if self.birth_year:
             return f"{self.name} ({self.birth_year})"
         return self.name
+    
+    def get_race_history(self):
+        """
+        Returns all race results for this runner, ordered by race date.
+        
+        Returns:
+            QuerySet of Result objects with prefetched race, event, and splits data,
+            ordered by race date (oldest first), then by race name for same-day races.
+        """
+        return self.results.select_related(
+            'race__event'
+        ).prefetch_related(
+            'splits'
+        ).order_by('race__date', 'race__name')
+    
+    def get_race_history_summary(self):
+        """
+        Returns a summary of all race results for this runner.
+        
+        Returns:
+            List of dictionaries containing race and result information.
+            Each dictionary contains:
+            - event_name: Name of the event
+            - race_name: Name of the specific race
+            - race_date: Date of the race
+            - distance_km: Race distance in kilometers
+            - location: Race location
+            - finish_time: Runner's finish time
+            - status: Result status (Finished, DNF, etc.)
+            - bib_number: Runner's bib number
+            - club: Runner's club/team
+            - splits: List of split times with name, distance, and time
+        """
+        results = self.get_race_history()
+        summary = []
+        
+        for result in results:
+            race_data = {
+                'event_name': result.race.event.name if result.race.event else 'Unknown Event',
+                'race_name': result.race.name,
+                'race_date': result.race.date,
+                'distance_km': result.race.distance_km,
+                'location': result.race.location,
+                'finish_time': result.finish_time,
+                'status': result.get_status_display(),
+                'bib_number': result.bib_number,
+                'club': result.club,
+                'splits': [
+                    {
+                        'name': split.split_name,
+                        'distance_km': split.distance_km,
+                        'time': split.split_time
+                    }
+                    for split in result.splits.all()
+                ]
+            }
+            summary.append(race_data)
+        
+        return summary
 
 
 class Event(models.Model):
