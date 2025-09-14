@@ -105,6 +105,13 @@ class Race(models.Model):
     cached_html = models.TextField(blank=True, help_text="Cached HTML content from the results page")
     html_fetched_at = models.DateTimeField(null=True, blank=True, help_text="When the HTML was last fetched")
     
+    # Error tracking
+    has_server_error = models.BooleanField(default=False, help_text="True if the race results page returns server errors (500, 404, etc.)")
+    last_error_code = models.IntegerField(null=True, blank=True, help_text="Last HTTP error code encountered")
+    last_error_message = models.TextField(blank=True, help_text="Last error message encountered")
+    error_count = models.IntegerField(default=0, help_text="Number of consecutive errors encountered")
+    last_error_at = models.DateTimeField(null=True, blank=True, help_text="When the last error occurred")
+    
     class Meta:
         ordering = ['date']
         indexes = [

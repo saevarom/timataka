@@ -53,6 +53,11 @@ class Command(BaseCommand):
             action='store_true',
             help='Skip caching HTML content for race results pages (caching is enabled by default)'
         )
+        parser.add_argument(
+            '--include-server-errors',
+            action='store_true',
+            help='Include races that previously had server errors (500, 404, etc.)'
+        )
 
     def handle(self, *args, **options):
         self.verbosity = options.get('verbosity', 1)
@@ -60,6 +65,7 @@ class Command(BaseCommand):
         self.overwrite = options.get('overwrite', False)
         self.force_refresh = options.get('force_refresh', False)
         self.cache_html = not options.get('no_cache_html', False)  # Cache by default
+        self.include_server_errors = options.get('include_server_errors', False)
         self.service = ScrapingService()
         
         if self.verbosity >= 1:
@@ -92,6 +98,21 @@ class Command(BaseCommand):
                 races = Race.objects.all()
             else:
                 races = Race.objects.filter(results__isnull=True).distinct()
+        
+        # Filter out races with server errors unless explicitly included
+        if not self.include_server_errors and not options.get('race_ids'):
+            initial_count = races.count()
+            races = races.filter(has_server_error=False)
+            filtered_count = races.count()
+            error_races_count = initial_count - filtered_count
+            
+            if error_races_count > 0 and self.verbosity >= 1:
+                self.stdout.write(
+                    self.style.WARNING(
+                        f"Skipping {error_races_count} races with known server errors. "
+                        f"Use --include-server-errors to process them anyway."
+                    )
+                )
         
         # Apply limit if specified
         if options.get('limit'):

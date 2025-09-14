@@ -78,6 +78,28 @@ class TimatakaScraper:
             return html_content
             
         except requests.exceptions.RequestException as e:
+            # Track server errors if we have a race cache object
+            if cache_obj and hasattr(cache_obj, 'has_server_error'):
+                from races.models import Race
+                if isinstance(cache_obj, Race):
+                    # Extract error code if available
+                    error_code = None
+                    if hasattr(e, 'response') and e.response is not None:
+                        error_code = e.response.status_code
+                    
+                    # Mark race as having server errors for 500-level errors
+                    if error_code and error_code >= 500:
+                        cache_obj.has_server_error = True
+                        cache_obj.last_error_code = error_code
+                        cache_obj.last_error_message = str(e)
+                        cache_obj.error_count += 1
+                        cache_obj.last_error_at = timezone.now()
+                        cache_obj.save(update_fields=[
+                            'has_server_error', 'last_error_code', 'last_error_message', 
+                            'error_count', 'last_error_at'
+                        ])
+                        logger.warning(f"Marked race {cache_obj.id} as having server error {error_code}")
+            
             # If web fetch fails but we have cached content, use it as fallback
             if cache_obj and cache_obj.cached_html:
                 logger.warning(f"Failed to fetch {url}, using cached content: {str(e)}")
