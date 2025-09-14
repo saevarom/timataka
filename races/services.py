@@ -266,13 +266,15 @@ class ScrapingService:
             logger.info(f"Created new race: {race.name}")
             return 'saved'
     
-    def discover_and_save_events(self, overwrite: bool = False, force_refresh: bool = False) -> Dict[str, int]:
+    def discover_and_save_events(self, overwrite: bool = False, force_refresh: bool = False, cache_html: bool = False, limit: int = None) -> Dict[str, int]:
         """
         Discover events from timataka.net homepage and save new ones to database.
         
         Args:
             overwrite: Whether to update existing events
             force_refresh: If True, bypass cache and fetch HTML from web
+            cache_html: If True, also fetch and cache HTML content for each event page
+            limit: If specified, limit the number of events to process
             
         Returns:
             Dict with counts: {'discovered': X, 'new': Y, 'existing': Z, 'errors': W}
@@ -288,9 +290,15 @@ class ScrapingService:
         try:
             # Discover events from homepage (with caching support)
             discovered_events = self.scraper.discover_races_from_homepage(force_refresh=force_refresh)
+            
+            # Apply limit if specified
+            if limit and len(discovered_events) > limit:
+                logger.info(f"Limiting processing to {limit} out of {len(discovered_events)} discovered events")
+                discovered_events = discovered_events[:limit]
+            
             result['discovered'] = len(discovered_events)
             
-            logger.info(f"Discovered {len(discovered_events)} events from timataka.net")
+            logger.info(f"Processing {len(discovered_events)} events from timataka.net")
             
             # Process each discovered event
             for event_info in discovered_events:
@@ -328,11 +336,21 @@ class ScrapingService:
                         else:
                             result['existing'] += 1
                             logger.debug(f"Event already exists with current date: {event_info['name']} ({existing_event.date})")
+                        
+                        # Cache HTML for existing events if requested and not already cached
+                        if cache_html and not existing_event.cached_html:
+                            try:
+                                logger.info(f"Caching HTML for existing event: {existing_event.name}")
+                                html_content = self.scraper._fetch_html_with_cache(existing_event.url, existing_event)
+                                logger.info(f"Cached {len(html_content)} characters for existing event: {existing_event.name}")
+                            except Exception as e:
+                                logger.warning(f"Failed to cache HTML for existing event {existing_event.name}: {str(e)}")
+                        
                         continue
                     
                     # Create new event record
                     with transaction.atomic():
-                        event = self._create_event_from_discovery(event_info)
+                        event = self._create_event_from_discovery(event_info, cache_html=cache_html)
                         result['new'] += 1
                         logger.info(f"Saved new event: {event.name} ({event.date})")
                         
@@ -349,7 +367,7 @@ class ScrapingService:
             logger.error(f"Unexpected error in event discovery: {str(e)}")
             raise TimatakaScrapingError(f"Service error: {str(e)}")
     
-    def _create_event_from_discovery(self, event_info: Dict) -> Event:
+    def _create_event_from_discovery(self, event_info: Dict, cache_html: bool = False) -> Event:
         """Create an Event object from discovered event information"""
         # Extract basic information
         name = event_info['name']
@@ -373,6 +391,15 @@ class ScrapingService:
             url=normalized_url,
             status='discovered',
         )
+        
+        # Optionally cache the HTML content of the event page
+        if cache_html:
+            try:
+                logger.info(f"Fetching and caching HTML for event: {name}")
+                html_content = self.scraper._fetch_html_with_cache(normalized_url, event)
+                logger.info(f"Cached {len(html_content)} characters for event: {name}")
+            except Exception as e:
+                logger.warning(f"Failed to cache HTML for event {name}: {str(e)}")
         
         return event
     
