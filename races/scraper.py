@@ -45,7 +45,7 @@ class TimatakaScraper:
         
         Args:
             url: URL to fetch
-            cache_obj: Model instance with cached_html and html_fetched_at fields
+            cache_obj: Model instance with cached_html and html_fetched_at fields (optional)
             force_refresh: If True, always fetch from web and update cache
             
         Returns:
@@ -56,6 +56,11 @@ class TimatakaScraper:
             if cache_obj and cache_obj.cached_html and not force_refresh:
                 logger.info(f"Using cached HTML for URL: {url}")
                 return cache_obj.cached_html
+            
+            # For homepage URL without cache object, we could implement file-based caching
+            # but for now, just log that no cache object is available
+            if not cache_obj:
+                logger.info(f"No cache object available for URL: {url}, fetching from web")
             
             # Fetch from web
             logger.info(f"Fetching HTML from web for URL: {url}")
@@ -113,9 +118,12 @@ class TimatakaScraper:
             logger.error(f"Error scraping race data: {str(e)}")
             raise TimatakaScrapingError(f"Failed to scrape race data: {str(e)}")
     
-    def discover_races_from_homepage(self) -> List[Dict]:
+    def discover_races_from_homepage(self, force_refresh: bool = False) -> List[Dict]:
         """
         Discover races by scraping the main timataka.net homepage.
+        
+        Args:
+            force_refresh: If True, bypass cache and fetch from web
         
         Returns:
             List of dictionaries containing race information:
@@ -127,11 +135,11 @@ class TimatakaScraper:
             TimatakaScrapingError: If scraping fails or data is invalid
         """
         try:
-            # Fetch the main timataka.net page
-            response = requests.get(self.base_url, timeout=30)
-            response.raise_for_status()
+            # Fetch the main timataka.net page with caching
+            # Since this is the homepage, we'll use a simple approach
+            html_content = self._fetch_html_with_cache(self.base_url, cache_obj=None, force_refresh=force_refresh)
             
-            soup = BeautifulSoup(response.content, 'lxml')
+            soup = BeautifulSoup(html_content, 'lxml')
             races = []
             
             # Find the left-area div which contains race links

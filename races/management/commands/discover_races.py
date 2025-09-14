@@ -20,10 +20,16 @@ class Command(BaseCommand):
             action='store_true',
             help='Show what would be discovered without saving to database'
         )
+        parser.add_argument(
+            '--force-refresh',
+            action='store_true',
+            help='Force refresh of cached HTML from web'
+        )
 
     def handle(self, *args, **options):
         overwrite = options['overwrite']
         dry_run = options['dry_run']
+        force_refresh = options['force_refresh']
         
         self.stdout.write("Starting event discovery from timataka.net...")
         
@@ -33,7 +39,7 @@ class Command(BaseCommand):
             if dry_run:
                 # Just discover events without saving
                 scraper = service.scraper
-                discovered_events = scraper.discover_races_from_homepage()
+                discovered_events = scraper.discover_races_from_homepage(force_refresh=force_refresh)
                 
                 self.stdout.write(
                     self.style.SUCCESS(f"Discovered {len(discovered_events)} events:")
@@ -47,7 +53,7 @@ class Command(BaseCommand):
                 return
             
             # Actually discover and save events
-            result = service.discover_and_save_events(overwrite=overwrite)
+            result = service.discover_and_save_events(overwrite=overwrite, force_refresh=force_refresh)
             
             # Display results
             self.stdout.write(

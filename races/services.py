@@ -266,12 +266,13 @@ class ScrapingService:
             logger.info(f"Created new race: {race.name}")
             return 'saved'
     
-    def discover_and_save_events(self, overwrite: bool = False) -> Dict[str, int]:
+    def discover_and_save_events(self, overwrite: bool = False, force_refresh: bool = False) -> Dict[str, int]:
         """
         Discover events from timataka.net homepage and save new ones to database.
         
         Args:
             overwrite: Whether to update existing events
+            force_refresh: If True, bypass cache and fetch HTML from web
             
         Returns:
             Dict with counts: {'discovered': X, 'new': Y, 'existing': Z, 'errors': W}
@@ -285,8 +286,8 @@ class ScrapingService:
         }
         
         try:
-            # Discover events from homepage
-            discovered_events = self.scraper.discover_races_from_homepage()
+            # Discover events from homepage (with caching support)
+            discovered_events = self.scraper.discover_races_from_homepage(force_refresh=force_refresh)
             result['discovered'] = len(discovered_events)
             
             logger.info(f"Discovered {len(discovered_events)} events from timataka.net")
