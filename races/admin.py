@@ -73,12 +73,30 @@ class RaceAdmin(admin.ModelAdmin):
             return [], {}, set(), []
 
 
+
+class RelatedFieldDropdownFilter(admin.SimpleListFilter):
+    title = 'Race'  # Filter title displayed in the sidebar
+    parameter_name = 'race_id'  # URL parameter name
+    template = 'admin/dropdown_filter.html'
+
+    def lookups(self, request, model_admin):
+        # Return a list of tuples: (value, human-readable name)
+        # These will be the options in the dropdown
+        return [(obj.id, str(obj)) for obj in Race.objects.all()]
+
+    def queryset(self, request, queryset):
+        # Filter the queryset based on the selected value
+        if self.value():
+            return queryset.filter(race__id=self.value())
+        return queryset
+
 @admin.register(Result)
 class ResultAdmin(admin.ModelAdmin):
     list_display = ['get_participant_name', 'get_gender', 'race', 'finish_time', 'status']
-    list_filter = ['status', 'race__date', 'race__race_type', 'runner__gender']
+    list_filter = ['status', RelatedFieldDropdownFilter, 'race__date', 'race__race_type', 'runner__gender']
     search_fields = ['runner__name', 'participant_name', 'club']
     ordering = ['race', 'finish_time']
+    date_hierarchy = 'race__date'
     list_per_page = 100  # Limit items per page for performance
     list_select_related = ['race', 'runner']  # Optimize database queries
     

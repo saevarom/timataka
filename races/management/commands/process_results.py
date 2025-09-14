@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 class Command(BaseCommand):
-    help = 'Process Race records and extract Results from their result pages'
+    help = 'Process Race records and extract Results from their result pages. HTML content is cached by default for each race results page.'
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -48,12 +48,18 @@ class Command(BaseCommand):
             action='store_true',
             help='Force refresh of cached HTML from web'
         )
+        parser.add_argument(
+            '--no-cache-html',
+            action='store_true',
+            help='Skip caching HTML content for race results pages (caching is enabled by default)'
+        )
 
     def handle(self, *args, **options):
         self.verbosity = options.get('verbosity', 1)
         self.dry_run = options.get('dry_run', False)
         self.overwrite = options.get('overwrite', False)
         self.force_refresh = options.get('force_refresh', False)
+        self.cache_html = not options.get('no_cache_html', False)  # Cache by default
         self.service = ScrapingService()
         
         if self.verbosity >= 1:
@@ -322,13 +328,17 @@ class Command(BaseCommand):
     def _fetch_results_page(self, url, race=None):
         """Fetch the HTML content of a results page with caching support"""
         try:
-            # Use the scraper's cached HTML method if we have a race object
+            # Use the scraper's cached HTML method if we have a race object and caching is enabled
             service = ScrapingService()
-            html_content = service.scraper._fetch_html_with_cache(
-                url, 
-                cache_obj=race, 
-                force_refresh=self.force_refresh
-            )
+            if self.cache_html and race:
+                html_content = service.scraper._fetch_html_with_cache(
+                    url, 
+                    cache_obj=race, 
+                    force_refresh=self.force_refresh
+                )
+            else:
+                # Fetch without caching
+                html_content = service.scraper._fetch_html(url)
             return html_content
         except Exception as e:
             logger.error(f"Error fetching results page {url}: {str(e)}")
