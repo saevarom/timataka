@@ -82,7 +82,7 @@ class RelatedFieldDropdownFilter(admin.SimpleListFilter):
     def lookups(self, request, model_admin):
         # Return a list of tuples: (value, human-readable name)
         # These will be the options in the dropdown
-        return [(obj.id, str(obj)) for obj in Race.objects.all()]
+        return [(obj.id, str(obj)) for obj in Race.objects.all().order_by('-date')]
 
     def queryset(self, request, queryset):
         # Filter the queryset based on the selected value
