@@ -4,6 +4,56 @@ from typing import Optional, List
 from decimal import Decimal
 
 
+class RunnerSchema(Schema):
+    id: int
+    name: str
+    birth_year: Optional[int] = None
+    gender: Optional[str] = None
+    nationality: str = "ISL"
+    created_at: datetime
+    updated_at: datetime
+
+
+class RunnerSearchSchema(Schema):
+    id: int
+    name: str
+    birth_year: Optional[int] = None
+    gender: Optional[str] = None
+    nationality: str = "ISL"
+    total_races: int
+
+
+class SplitDetailSchema(Schema):
+    name: str
+    distance_km: Optional[float] = None
+    time: timedelta
+
+
+class RaceHistorySchema(Schema):
+    event_name: str
+    race_name: str
+    race_date: date
+    distance_km: float
+    location: str
+    finish_time: timedelta
+    status: str
+    bib_number: Optional[str] = None
+    club: Optional[str] = None
+    splits: List[SplitDetailSchema]
+
+
+class RunnerDetailSchema(Schema):
+    id: int
+    name: str
+    birth_year: Optional[int] = None
+    gender: Optional[str] = None
+    nationality: str = "ISL"
+    created_at: datetime
+    updated_at: datetime
+    total_races: int
+    race_history: List[RaceHistorySchema]
+
+
 class RaceSchema(Schema):
     id: int
     name: str
@@ -49,10 +99,14 @@ class ResultSchema(Schema):
     bib_number: Optional[str] = None
     participant_name: str
     age: Optional[int] = None
+    gender: Optional[str] = None
     nationality: str = "ISL"
     club: Optional[str] = None
     finish_time: timedelta
     gun_time: Optional[timedelta] = None
+    overall_place: int
+    gender_place: Optional[int] = None
+    age_group_place: Optional[int] = None
     status: str = "finished"
     created_at: datetime
     updated_at: datetime
@@ -62,10 +116,14 @@ class ResultCreateSchema(Schema):
     bib_number: Optional[str] = None
     participant_name: str
     age: Optional[int] = None
+    gender: Optional[str] = None
     nationality: str = "ISL"
     club: Optional[str] = None
     finish_time: timedelta
     gun_time: Optional[timedelta] = None
+    overall_place: int
+    gender_place: Optional[int] = None
+    age_group_place: Optional[int] = None
     status: str = "finished"
 
 

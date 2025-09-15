@@ -1,17 +1,18 @@
 from ninja import Router, File
 from ninja.files import UploadedFile
 from django.shortcuts import get_object_or_404
-from django.db.models import Q
+from django.db.models import Q, Count
 from django.http import JsonResponse
 from typing import List, Optional
 from datetime import date
 
-from .models import Race, Result, Split
+from .models import Race, Result, Split, Runner
 from .schemas import (
     RaceSchema, RaceCreateSchema, RaceListFilterSchema,
     ResultSchema, ResultCreateSchema,
     SplitSchema, SplitCreateSchema,
-    ScrapingResultSchema, HTMLContentSchema
+    ScrapingResultSchema, HTMLContentSchema,
+    RunnerSchema, RunnerSearchSchema, RunnerDetailSchema
 )
 from .services import ScrapingService, TimatakaScrapingError
 
@@ -200,7 +201,7 @@ def list_race_results(
     queryset = race.results.all()
     
     if gender:
-        queryset = queryset.filter(runner__gender=gender)
+        queryset = queryset.filter(gender=gender)
     if status:
         queryset = queryset.filter(status=status)
     
@@ -238,3 +239,114 @@ def create_split(request, result_id: int, payload: SplitCreateSchema):
     payload_dict['result_id'] = result.id
     split = Split.objects.create(**payload_dict)
     return split
+
+
+# Runner API endpoints
+
+@router.get("/runners/search", response=List[RunnerSearchSchema])
+def search_runners(
+    request,
+    q: Optional[str] = None,
+    birth_year: Optional[int] = None,
+    gender: Optional[str] = None,
+    limit: int = 20,
+    offset: int = 0
+):
+    """
+    Search for runners with optional filters.
+    
+    Parameters:
+    - q: Search term for runner name (partial matches)
+    - birth_year: Filter by birth year
+    - gender: Filter by gender (M/F)
+    - limit: Maximum number of results (default: 20, max: 100)
+    - offset: Number of results to skip (for pagination)
+    """
+    # Limit the maximum number of results
+    limit = min(limit, 100)
+    
+    queryset = Runner.objects.annotate(
+        total_races=Count('results')
+    ).filter(results__isnull=False).distinct()
+    
+    # Apply filters
+    if q:
+        queryset = queryset.filter(name__icontains=q)
+    
+    if birth_year:
+        queryset = queryset.filter(birth_year=birth_year)
+    
+    if gender and gender.upper() in ['M', 'F']:
+        queryset = queryset.filter(gender=gender.upper())
+    
+    # Order by name for consistent results
+    queryset = queryset.order_by('name', 'birth_year')
+    
+    # Apply pagination
+    runners = queryset[offset:offset + limit]
+    
+    # Convert to schema format
+    result = []
+    for runner in runners:
+        result.append(RunnerSearchSchema(
+            id=runner.id,
+            name=runner.name,
+            birth_year=runner.birth_year,
+            gender=runner.gender,
+            nationality=runner.nationality,
+            total_races=runner.total_races
+        ))
+    
+    return result
+
+
+@router.get("/runners/{runner_id}", response=RunnerDetailSchema)
+def get_runner_detail(request, runner_id: int):
+    """
+    Get detailed information about a specific runner including complete race history.
+    
+    Returns:
+    - Runner basic information
+    - Complete race history with results and splits
+    - Ordered chronologically by race date
+    """
+    runner = get_object_or_404(Runner, id=runner_id)
+    
+    # Get race history summary using the model method
+    race_history_data = runner.get_race_history_summary()
+    
+    # Convert to schema format
+    race_history = [
+        {
+            'event_name': race['event_name'],
+            'race_name': race['race_name'],
+            'race_date': race['race_date'],
+            'distance_km': race['distance_km'],
+            'location': race['location'],
+            'finish_time': race['finish_time'],
+            'status': race['status'],
+            'bib_number': race['bib_number'],
+            'club': race['club'],
+            'splits': [
+                {
+                    'name': split['name'],
+                    'distance_km': split['distance_km'],
+                    'time': split['time']
+                }
+                for split in race['splits']
+            ]
+        }
+        for race in race_history_data
+    ]
+    
+    return RunnerDetailSchema(
+        id=runner.id,
+        name=runner.name,
+        birth_year=runner.birth_year,
+        gender=runner.gender,
+        nationality=runner.nationality,
+        created_at=runner.created_at,
+        updated_at=runner.updated_at,
+        total_races=len(race_history),
+        race_history=race_history
+    )
