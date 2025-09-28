@@ -12,8 +12,8 @@ class RunnerAdmin(admin.ModelAdmin):
 
 @admin.register(Event)
 class EventAdmin(admin.ModelAdmin):
-    list_display = ['name', 'date', 'status', 'cache_status', 'last_processed', 'created_at']
-    list_filter = ['status', 'date', 'last_processed']
+    list_display = ['name', 'date', 'source', 'status', 'cache_status', 'last_processed', 'created_at']
+    list_filter = ['source', 'status', 'date', 'last_processed']
     search_fields = ['name', 'url']
     date_hierarchy = 'date'
     ordering = ['-date']
@@ -30,8 +30,8 @@ class EventAdmin(admin.ModelAdmin):
 
 @admin.register(Race)
 class RaceAdmin(admin.ModelAdmin):
-    list_display = ['name', 'event', 'date', 'race_type', 'location', 'distance_km', 'cache_status']
-    list_filter = ['race_type', 'date', 'location', 'event__status']
+    list_display = ['name', 'event', 'date', 'source', 'race_type', 'location', 'distance_km', 'cache_status']
+    list_filter = ['source', 'race_type', 'date', 'location', 'event__status', 'event__source']
     search_fields = ['name', 'location', 'organizer', 'event__name']
     date_hierarchy = 'date'
     ordering = ['-date']
@@ -93,7 +93,7 @@ class RelatedFieldDropdownFilter(admin.SimpleListFilter):
 @admin.register(Result)
 class ResultAdmin(admin.ModelAdmin):
     list_display = ['get_participant_name', 'get_gender', 'race', 'finish_time', 'status']
-    list_filter = ['status', RelatedFieldDropdownFilter, 'race__date', 'race__race_type', 'runner__gender']
+    list_filter = ['status', 'race__source', RelatedFieldDropdownFilter, 'race__date', 'race__race_type', 'runner__gender']
     search_fields = ['runner__name', 'participant_name', 'club']
     ordering = ['race', 'finish_time']
     date_hierarchy = 'race__date'
