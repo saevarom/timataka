@@ -142,7 +142,7 @@ The only remaining piece is enhancing the results extraction to handle JavaScrip
 ## 🚀 **Usage Examples**
 
 ```bash
-# Discover all Corsa events (dry run)
+# Discover all Corsa events (dry run) - ✅ Working
 python manage.py discover_corsa_events --dry-run
 
 # Save first 5 Corsa events to database  

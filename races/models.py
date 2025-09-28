@@ -2,6 +2,13 @@ from django.db import models
 from django.core.validators import MinValueValidator, MaxValueValidator
 
 
+# Source website choices - used by both Event and Race models
+SOURCE_CHOICES = [
+    ('timataka.net', 'Timataka.net'),
+    ('corsa.is', 'Corsa.is'),
+]
+
+
 class Runner(models.Model):
     """Model representing a unique runner/participant"""
     
@@ -107,6 +114,9 @@ class Event(models.Model):
     # HTML caching
     cached_html = models.TextField(blank=True, help_text="Cached HTML content from the event page")
     html_fetched_at = models.DateTimeField(null=True, blank=True, help_text="When the HTML was last fetched")
+    
+    # Source tracking
+    source = models.CharField(max_length=20, choices=SOURCE_CHOICES, default='timataka.net', help_text="Source website")
     
     # Metadata
     created_at = models.DateTimeField(auto_now_add=True)
