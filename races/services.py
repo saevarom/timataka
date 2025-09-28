@@ -765,20 +765,35 @@ class ScrapingService:
                     event.last_processed = datetime.now()
                     event.save()
                     
-                    # Scrape races from the event URL (with caching support)
-                    races_data = self.scraper.scrape_races_from_event_url(event.url, event_obj=event, force_refresh=force_refresh)
-                    
-                    # Create Race objects for each race found
                     races_created_count = 0
-                    with transaction.atomic():
-                        for race_data in races_data:
-                            try:
-                                race = self._create_race_from_event_data(race_data, event)
-                                races_created_count += 1
-                                logger.debug(f"Created race: {race.name}")
-                            except Exception as e:
-                                logger.error(f"Error creating race from data {race_data}: {str(e)}")
-                                result['errors'] += 1
+                    
+                    # Handle different sources differently
+                    if event.source == 'corsa.is':
+                        # For Corsa events, races are already created during discovery
+                        # Just verify races exist and mark as processed
+                        existing_races = Race.objects.filter(event=event).count()
+                        if existing_races > 0:
+                            logger.info(f"Corsa event already has {existing_races} races from discovery phase")
+                            races_created_count = existing_races
+                        else:
+                            logger.warning(f"Corsa event has no races - may need to re-run discover_corsa_events")
+                    else:
+                        # For Timataka events, extract races from event URL
+                        scraper = self.get_scraper(event.source)
+                        
+                        # Scrape races from the event URL (with caching support)
+                        races_data = scraper.scrape_races_from_event_url(event.url, event_obj=event, force_refresh=force_refresh)
+                        
+                        # Create Race objects for each race found
+                        with transaction.atomic():
+                            for race_data in races_data:
+                                try:
+                                    race = self._create_race_from_event_data(race_data, event)
+                                    races_created_count += 1
+                                    logger.debug(f"Created race: {race.name}")
+                                except Exception as e:
+                                    logger.error(f"Error creating race from data {race_data}: {str(e)}")
+                                    result['errors'] += 1
                     
                     # Update event status to processed
                     event.status = 'processed'
