@@ -627,6 +627,7 @@ class ScrapingService:
                         if existing_event:
                             # Update existing event
                             existing_event.date = event_info['date']
+                            existing_event.status = 'discovered'  # Reset status to allow reprocessing
                             existing_event.save()
                             event = existing_event
                             result['updated'] += 1
