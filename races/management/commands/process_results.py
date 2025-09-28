@@ -349,17 +349,25 @@ class Command(BaseCommand):
     def _fetch_results_page(self, url, race=None):
         """Fetch the HTML content of a results page with caching support"""
         try:
-            # Use the scraper's cached HTML method if we have a race object and caching is enabled
+            # Use the appropriate scraper based on race source
             service = ScrapingService()
+            scraper = service.get_scraper(race.source if race else 'timataka.net')
+            
             if self.cache_html and race:
-                html_content = service.scraper._fetch_html_with_cache(
+                html_content = scraper._fetch_html_with_cache(
                     url, 
                     cache_obj=race, 
                     force_refresh=self.force_refresh
                 )
             else:
-                # Fetch without caching
-                html_content = service.scraper._fetch_html(url)
+                # Fetch without caching - need to make the request manually
+                import requests
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                }
+                response = requests.get(url, timeout=30, headers=headers)
+                response.raise_for_status()
+                html_content = response.text
             return html_content
         except Exception as e:
             logger.error(f"Error fetching results page {url}: {str(e)}")

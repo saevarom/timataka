@@ -88,11 +88,17 @@ class Runner(models.Model):
 
 
 class Event(models.Model):
-    """Model representing a racing event (found on timataka.net homepage)"""
+    """Model representing a racing event (found on race results websites)"""
     
-    name = models.CharField(max_length=200, help_text="Event name as found on timataka.net homepage")
-    date = models.DateField(help_text="Event date parsed from homepage")
-    url = models.URLField(unique=True, help_text="URL to the event page on timataka.net")
+    SOURCE_CHOICES = [
+        ('timataka.net', 'Timataka.net'),
+        ('corsa.is', 'Corsa.is'),
+    ]
+    
+    name = models.CharField(max_length=200, help_text="Event name as found on the results website")
+    date = models.DateField(help_text="Event date parsed from the website")
+    url = models.URLField(unique=True, help_text="URL to the event page")
+    source = models.CharField(max_length=20, choices=SOURCE_CHOICES, default='timataka.net', help_text="Source website")
     
     # Processing status
     STATUS_CHOICES = [
@@ -137,6 +143,11 @@ class Race(models.Model):
         ('other', 'Other'),
     ]
     
+    SOURCE_CHOICES = [
+        ('timataka.net', 'Timataka.net'),
+        ('corsa.is', 'Corsa.is'),
+    ]
+    
     # Link to the event this race belongs to
     event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='races', null=True, blank=True)
     
@@ -153,6 +164,7 @@ class Race(models.Model):
     organizer = models.CharField(max_length=200, blank=True)
     entry_fee = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)
     currency = models.CharField(max_length=3, default='ISK')
+    source = models.CharField(max_length=20, choices=SOURCE_CHOICES, default='timataka.net', help_text="Source website")
     
     # Metadata
     created_at = models.DateTimeField(auto_now_add=True)

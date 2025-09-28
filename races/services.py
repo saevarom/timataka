@@ -5,6 +5,7 @@ import requests
 from bs4 import BeautifulSoup
 from django.db import transaction
 from .scraper import TimatakaScraper, TimatakaScrapingError
+from .corsa_scraper import CorsaScraper, CorsaScrapingError
 from .models import Race, Runner, Result, Split, Event
 
 logger = logging.getLogger(__name__)
@@ -15,11 +16,19 @@ class ScrapingService:
     Service class for handling race data scraping operations.
     
     This service provides high-level methods for scraping race data
-    and integrating it with the database.
+    and integrating it with the database from multiple sources.
     """
     
     def __init__(self):
-        self.scraper = TimatakaScraper()
+        self.timataka_scraper = TimatakaScraper()
+        self.corsa_scraper = CorsaScraper()
+    
+    def get_scraper(self, source: str):
+        """Get the appropriate scraper for the source"""
+        if source == 'corsa.is':
+            return self.corsa_scraper
+        else:
+            return self.timataka_scraper
     
     def scrape_and_save_race_results(self, html_content: str, race_id: int, 
                                    overwrite: bool = False, gender: str = None, 
@@ -28,7 +37,7 @@ class ScrapingService:
         Scrape race results from HTML content and save to database.
         
         Args:
-            html_content: Raw HTML content from Timataka results page
+            html_content: Raw HTML content from race results page
             race_id: ID of the race in database
             overwrite: Whether to overwrite existing results
             gender: Gender category for these results ('male', 'female', or None for mixed)
@@ -49,8 +58,21 @@ class ScrapingService:
             # Get the race
             race = Race.objects.get(id=race_id)
             
-            # Scrape results data
-            results_data = self.scraper.scrape_race_results(html_content, race_id)
+            # Get the appropriate scraper based on the race source
+            scraper = self.get_scraper(race.source)
+            
+            # Scrape results data using the appropriate scraper
+            if race.source == 'corsa.is':
+                # For Corsa, extract results from HTML
+                results_list = scraper._extract_results_from_html(html_content, race.results_url or race.source_url)
+                results_data = {
+                    'results_count': len(results_list),
+                    'results': results_list
+                }
+            else:
+                # For Timataka, use the existing method
+                results_data = scraper.scrape_race_results(html_content, race_id)
+            
             result['scraped'] = results_data['results_count']
             
             # Check if results already exist (unless skipping this check)
@@ -92,11 +114,14 @@ class ScrapingService:
     
     def _save_result_to_db(self, result_data: Dict, race: Race, gender: str = None) -> Result:
         """Save a single result to database"""
+        # Normalize result data based on source
+        normalized_data = self._normalize_result_data(result_data, race.source)
+        
         # Get or create runner
         runner = self._get_or_create_runner(
-            result_data['name'], 
-            result_data.get('year'),
-            gender[0].upper() if gender else ''  # Convert 'male'/'female' to 'M'/'F'
+            normalized_data['name'], 
+            normalized_data.get('year'),
+            gender[0].upper() if gender else normalized_data.get('gender', '')
         )
         
         # Create or get result (prevent duplicates for same runner in same race)
@@ -104,12 +129,12 @@ class ScrapingService:
             race=race,
             runner=runner,
             defaults={
-                'bib_number': result_data.get('bib', ''),
-                'club': result_data.get('club', ''),
-                'finish_time': result_data['finish_time'],
-                'chip_time': result_data.get('chip_time'),
-                'time_behind': result_data.get('time_behind'),
-                'status': 'finished'
+                'bib_number': normalized_data.get('bib_number', ''),
+                'club': normalized_data.get('club', ''),
+                'finish_time': normalized_data['finish_time'],
+                'chip_time': normalized_data.get('chip_time'),
+                'time_behind': normalized_data.get('time_behind'),
+                'status': normalized_data.get('status', 'finished')
             }
         )
         
@@ -117,11 +142,11 @@ class ScrapingService:
         if not result_created:
             # Update fields if they're different (e.g., better bib number)
             updated = False
-            if result_data.get('bib', '') and not result.bib_number:
-                result.bib_number = result_data.get('bib', '')
+            if normalized_data.get('bib_number', '') and not result.bib_number:
+                result.bib_number = normalized_data.get('bib_number', '')
                 updated = True
-            if result_data.get('club', '') and not result.club:
-                result.club = result_data.get('club', '')
+            if normalized_data.get('club', '') and not result.club:
+                result.club = normalized_data.get('club', '')
                 updated = True
             if updated:
                 result.save()
@@ -139,6 +164,46 @@ class ScrapingService:
                 )
         
         return result
+    
+    def _normalize_result_data(self, result_data: Dict, source: str) -> Dict:
+        """
+        Normalize result data from different sources to a common format.
+        
+        Args:
+            result_data: Raw result data from scraper
+            source: Source website ('timataka.net' or 'corsa.is')
+            
+        Returns:
+            Normalized result data dictionary
+        """
+        if source == 'corsa.is':
+            # Normalize Corsa data format
+            return {
+                'name': result_data.get('name', ''),
+                'bib_number': result_data.get('bib_number', ''),
+                'club': result_data.get('club', ''),
+                'finish_time': result_data.get('finish_time', ''),
+                'chip_time': result_data.get('chip_time'),  # Corsa might not have chip time
+                'time_behind': result_data.get('behind_time'),
+                'status': result_data.get('status', 'Finished').lower(),
+                'gender': result_data.get('gender', ''),
+                'year': result_data.get('age'),  # Corsa might have age instead of birth year
+                'rank': result_data.get('rank', 0),
+            }
+        else:
+            # Timataka data format (existing format)
+            return {
+                'name': result_data.get('name', ''),
+                'bib_number': result_data.get('bib', ''),
+                'club': result_data.get('club', ''),
+                'finish_time': result_data.get('finish_time', ''),
+                'chip_time': result_data.get('chip_time'),
+                'time_behind': result_data.get('time_behind'),
+                'status': 'finished',
+                'gender': '',  # Timataka handles gender separately
+                'year': result_data.get('year'),
+                'rank': result_data.get('rank', 0),
+            }
     
     def _get_or_create_runner(self, name: str, birth_year: Optional[int], gender: str = '') -> Runner:
         """Get or create a runner by name and birth year"""
@@ -473,6 +538,158 @@ class ScrapingService:
             return f"{url}urslit/"
         else:
             return f"{url}/urslit/"
+
+    def discover_and_save_corsa_events(self, overwrite: bool = False, force_refresh: bool = False, limit: int = None) -> Dict[str, int]:
+        """
+        Discover events from corsa.is results page and save them to database.
+        
+        Args:
+            overwrite: Whether to update existing events
+            force_refresh: If True, bypass cache and fetch HTML from web
+            limit: If specified, limit the number of events to process
+            
+        Returns:
+            Dict with counts: {'discovered': X, 'new': Y, 'existing': Z, 'errors': W}
+        """
+        result = {
+            'discovered': 0,
+            'new': 0,
+            'existing': 0,
+            'updated': 0,
+            'errors': 0
+        }
+        
+        try:
+            # Discover events from corsa.is results page
+            discovered_events = self.corsa_scraper.discover_events_from_results_page(force_refresh=force_refresh)
+            
+            # Apply limit if specified
+            if limit and len(discovered_events) > limit:
+                logger.info(f"Limiting processing to {limit} out of {len(discovered_events)} discovered events")
+                discovered_events = discovered_events[:limit]
+            
+            result['discovered'] = len(discovered_events)
+            
+            logger.info(f"Processing {len(discovered_events)} events from corsa.is")
+            
+            # Process each discovered event and its races
+            for event_info in discovered_events:
+                try:
+                    # For Corsa events, we process them differently since each event has multiple race URLs
+                    # We create one Event record and multiple Race records for each race category
+                    
+                    # Check if event already exists (by name and year, since URLs are different for races)
+                    existing_event = Event.objects.filter(
+                        name=event_info['name'],
+                        source='corsa.is'
+                    ).first()
+                    
+                    if existing_event and not overwrite:
+                        result['existing'] += 1
+                        logger.debug(f"Event already exists: {event_info['name']}")
+                        continue
+                    
+                    # Create or update event record
+                    with transaction.atomic():
+                        if existing_event:
+                            # Update existing event
+                            existing_event.date = event_info['date']
+                            existing_event.save()
+                            event = existing_event
+                            result['updated'] += 1
+                            logger.info(f"Updated event: {event.name}")
+                        else:
+                            # Create new event record
+                            event = self._create_corsa_event_from_discovery(event_info)
+                            result['new'] += 1
+                            logger.info(f"Created new event: {event.name} ({event.date})")
+                        
+                        # Create/update race records for each race category in this event
+                        for race_info in event_info['races']:
+                            try:
+                                self._create_or_update_corsa_race(event, race_info, overwrite)
+                            except Exception as e:
+                                logger.error(f"Error creating race '{race_info['name']}' for event '{event.name}': {str(e)}")
+                                result['errors'] += 1
+                                
+                except Exception as e:
+                    logger.error(f"Error processing discovered event '{event_info.get('name', 'Unknown')}': {str(e)}")
+                    result['errors'] += 1
+            
+            return result
+            
+        except CorsaScrapingError as e:
+            logger.error(f"Corsa event discovery failed: {str(e)}")
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error in Corsa event discovery: {str(e)}")
+            raise CorsaScrapingError(f"Service error: {str(e)}")
+    
+    def _create_corsa_event_from_discovery(self, event_info: Dict) -> Event:
+        """Create a Corsa Event object from discovered event information"""
+        name = event_info['name']
+        event_date = event_info['date']
+        
+        # For Corsa events, we use the first race URL as the primary URL
+        # or create a placeholder URL
+        primary_url = event_info['races'][0]['url'] if event_info['races'] else f"https://www.corsa.is/{name.lower().replace(' ', '-')}"
+        
+        # Create and save the event
+        event = Event.objects.create(
+            name=name,
+            date=event_date,
+            url=primary_url,
+            source='corsa.is',
+            status='discovered',
+        )
+        
+        return event
+    
+    def _create_or_update_corsa_race(self, event: Event, race_info: Dict, overwrite: bool = False):
+        """Create or update a Race record from Corsa race information"""
+        # Check if race already exists
+        existing_race = Race.objects.filter(
+            event=event,
+            name=race_info['name'],
+            source='corsa.is'
+        ).first()
+        
+        if existing_race and not overwrite:
+            logger.debug(f"Race already exists: {race_info['name']}")
+            return existing_race
+        
+        # Extract location from event name (rough estimate)
+        location = "Reykjavik"  # Default location
+        if 'reykjavik' in event.name.lower():
+            location = "Reykjavik"
+        elif 'laugavegur' in event.name.lower():
+            location = "Laugavegur"
+        
+        race_data = {
+            'event': event,
+            'name': race_info['name'],
+            'race_type': race_info['race_type'],
+            'date': event.date,
+            'location': location,
+            'distance_km': race_info.get('distance_km') or 1.0,  # Ensure we have a valid distance
+            'results_url': race_info['url'],
+            'source_url': race_info['url'],
+            'source': 'corsa.is',
+        }
+        
+        if existing_race:
+            # Update existing race
+            for key, value in race_data.items():
+                if key != 'event':  # Don't update the event field
+                    setattr(existing_race, key, value)
+            existing_race.save()
+            logger.info(f"Updated race: {race_info['name']}")
+            return existing_race
+        else:
+            # Create new race
+            race = Race.objects.create(**race_data)
+            logger.info(f"Created race: {race_info['name']} ({race.race_type})")
+            return race
 
     def process_events_and_extract_races(self, event_ids: List[int] = None, limit: int = None, force_refresh: bool = False) -> Dict[str, int]:
         """
