@@ -88,17 +88,11 @@ class Runner(models.Model):
 
 
 class Event(models.Model):
-    """Model representing a racing event (found on race results websites)"""
+    """Model representing a racing event (found on timataka.net homepage)"""
     
-    SOURCE_CHOICES = [
-        ('timataka.net', 'Timataka.net'),
-        ('corsa.is', 'Corsa.is'),
-    ]
-    
-    name = models.CharField(max_length=200, help_text="Event name as found on the results website")
-    date = models.DateField(help_text="Event date parsed from the website")
-    url = models.URLField(unique=True, help_text="URL to the event page")
-    source = models.CharField(max_length=20, choices=SOURCE_CHOICES, default='timataka.net', help_text="Source website")
+    name = models.CharField(max_length=200, help_text="Event name as found on timataka.net homepage")
+    date = models.DateField(help_text="Event date parsed from homepage")
+    url = models.URLField(unique=True, help_text="URL to the event page on timataka.net")
     
     # Processing status
     STATUS_CHOICES = [
@@ -141,11 +135,6 @@ class Race(models.Model):
         ('trail', 'Trail Run'),
         ('ultra', 'Ultra Marathon'),
         ('other', 'Other'),
-    ]
-    
-    SOURCE_CHOICES = [
-        ('timataka.net', 'Timataka.net'),
-        ('corsa.is', 'Corsa.is'),
     ]
     
     # Link to the event this race belongs to

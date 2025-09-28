@@ -178,17 +178,50 @@ class ScrapingService:
         """
         if source == 'corsa.is':
             # Normalize Corsa data format
+            # Convert seconds to formatted time string if needed
+            finish_time = result_data.get('gun_time_seconds')
+            if finish_time and isinstance(finish_time, (int, float)):
+                # Convert seconds to HH:MM:SS format
+                hours = int(finish_time // 3600)
+                minutes = int((finish_time % 3600) // 60)
+                seconds = int(finish_time % 60)
+                finish_time = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+            else:
+                finish_time = result_data.get('finish_time', '')
+                
+            chip_time = result_data.get('net_time_seconds')
+            if chip_time and isinstance(chip_time, (int, float)):
+                # Convert seconds to HH:MM:SS format  
+                hours = int(chip_time // 3600)
+                minutes = int((chip_time % 3600) // 60)
+                seconds = int(chip_time % 60)
+                chip_time = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+            else:
+                chip_time = result_data.get('chip_time')
+            
+            # Convert gender to database format (single character)
+            raw_gender = result_data.get('gender', '').lower()
+            if raw_gender == 'male':
+                gender_code = 'M'
+            elif raw_gender == 'female':
+                gender_code = 'F'
+            elif raw_gender == 'nonbinary':
+                # Database only supports M/F, so we'll leave this blank for now
+                gender_code = ''
+            else:
+                gender_code = ''
+            
             return {
                 'name': result_data.get('name', ''),
                 'bib_number': result_data.get('bib_number', ''),
                 'club': result_data.get('club', ''),
-                'finish_time': result_data.get('finish_time', ''),
-                'chip_time': result_data.get('chip_time'),  # Corsa might not have chip time
+                'finish_time': finish_time,
+                'chip_time': chip_time,
                 'time_behind': result_data.get('behind_time'),
                 'status': result_data.get('status', 'Finished').lower(),
-                'gender': result_data.get('gender', ''),
+                'gender': gender_code,
                 'year': result_data.get('age'),  # Corsa might have age instead of birth year
-                'rank': result_data.get('rank', 0),
+                'rank': result_data.get('rank_overall', result_data.get('rank', 0)),
             }
         else:
             # Timataka data format (existing format)

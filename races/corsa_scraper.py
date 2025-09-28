@@ -390,29 +390,93 @@ class CorsaScraper:
     def _extract_results_from_script(self, script_content: str) -> List[Dict]:
         """
         Try to extract results data from JavaScript/JSON in script tags.
+        
+        Corsa.is uses Next.js streaming format where data is in self.__next_f.push() calls.
+        The participants array contains the race results.
         """
         results = []
         try:
-            # Look for JSON data patterns that might contain results
-            # This is speculative since we need to see the actual structure
+            # Look for Next.js streaming data format: self.__next_f.push([1,"..."])
+            if 'self.__next_f.push([1,' in script_content:
+                # Extract the data from Next.js streaming format
+                start = script_content.find('self.__next_f.push([1,') + len('self.__next_f.push([1,')
+                end = script_content.rfind('])')
+                
+                if end > start:
+                    data_part = script_content[start:end]
+                    
+                    # Remove the quotes around the JSON string and unescape
+                    if data_part.startswith('"') and data_part.endswith('"'):
+                        json_string = data_part[1:-1]
+                        
+                        # Look for the participants array pattern in the unescaped JSON
+                        # The JSON is double-escaped, so we need to handle the escaped quotes
+                        participants_pattern = r'\\\\\"participants\\\\\":\s*\[([^\]]+)\]'
+                        match = re.search(participants_pattern, json_string)
+                        
+                        if match:
+                            participants_data = match.group(1)
+                            
+                            # Extract individual participant objects
+                            # Each participant object contains: id, bib, name, gender, gunTime, chipTime, etc.
+                            # The JSON is double-escaped: {\"id\":\"162813\",\"bib\":\"2042\",...}
+                            participant_pattern = r'\{\\\"id\\\":\\\"([^"]+)\\\",\\\"bib\\\":\\\"([^"]+)\\\",.*?\\\"name\\\":\\\"([^"]+)\\\",.*?\\\"gender\\\":\\\"([^"]+)\\\",.*?\\\"gunTime\\\":(\d+),\\\"chipTime\\\":(\d+),.*?\\\"rankOverall\\\":(\d+)'
+                            
+                            for participant_match in re.finditer(participant_pattern, participants_data):
+                                try:
+                                    # Extract participant data
+                                    participant_id = participant_match.group(1)
+                                    bib_number = participant_match.group(2) 
+                                    name = participant_match.group(3)
+                                    gender = participant_match.group(4)
+                                    gun_time_ms = int(participant_match.group(5))
+                                    chip_time_ms = int(participant_match.group(6))
+                                    rank = int(participant_match.group(7))
+                                    
+                                    # Convert milliseconds to seconds for our format
+                                    gun_time_seconds = gun_time_ms / 1000.0
+                                    chip_time_seconds = chip_time_ms / 1000.0
+                                    
+                                    result = {
+                                        'bib_number': bib_number,
+                                        'name': name,
+                                        'gender': gender.lower(),
+                                        'gun_time_seconds': gun_time_seconds,
+                                        'net_time_seconds': chip_time_seconds, 
+                                        'rank_overall': rank,
+                                        'participant_id': participant_id
+                                    }
+                                    
+                                    results.append(result)
+                                    
+                                except (ValueError, IndexError) as e:
+                                    logger.debug(f"Error parsing participant: {str(e)}")
+                                    continue
+                            
+                            logger.info(f"Extracted {len(results)} participants from Next.js streaming data")
+                        else:
+                            # Try a broader search for participants data
+                            logger.debug("Participants array not found with standard pattern, trying broader search")
+                            self._extract_participants_broader_search(json_string, results)
             
-            # Common patterns in Next.js apps
-            json_patterns = [
-                r'window\.__NEXT_DATA__\s*=\s*({.+?});',
-                r'"props"\s*:\s*({.+?"results".+?})',
-                r'"results"\s*:\s*(\[.+?\])',
-            ]
-            
-            for pattern in json_patterns:
-                match = re.search(pattern, script_content, re.DOTALL)
-                if match:
-                    try:
-                        json_data = json.loads(match.group(1))
-                        # Process the JSON data to extract results
-                        parsed_results = self._process_json_results(json_data)
-                        results.extend(parsed_results)
-                    except json.JSONDecodeError:
-                        continue
+            # Fallback to older patterns for other data formats            
+            if not results:
+                json_patterns = [
+                    r'window\.__NEXT_DATA__\s*=\s*({.+?});',
+                    r'"props"\s*:\s*({.+?"results".+?})',
+                    r'"results"\s*:\s*(\[.+?\])',
+                ]
+                
+                for pattern in json_patterns:
+                    match = re.search(pattern, script_content, re.DOTALL)
+                    if match:
+                        try:
+                            json_data = json.loads(match.group(1))
+                            # Process the JSON data to extract results
+                            parsed_results = self._process_json_results(json_data)
+                            results.extend(parsed_results)
+                        except json.JSONDecodeError:
+                            continue
                         
         except Exception as e:
             logger.debug(f"Failed to extract results from script: {str(e)}")
@@ -471,6 +535,55 @@ class CorsaScraper:
             logger.error(f"Error extracting results from rendered HTML: {str(e)}")
             
         return results
+
+    def _extract_participants_broader_search(self, json_string: str, results: List[Dict]) -> None:
+        """
+        Broader search for participants data when the standard pattern doesn't work.
+        
+        This method looks for individual participant objects even if they're not 
+        in a clearly defined participants array.
+        """
+        try:
+            # Look for individual participant objects with racing data
+            # The JSON is double-escaped in Next.js streaming format
+            # Pattern: {\"id\":\"162813\",\"bib\":\"2042\",\"name\":\"Michael R Nasuta\",...}
+            broader_pattern = r'\{\\\"id\\\":\\\"([^"]+)\\\",.*?\\\"bib\\\":\\\"([^"]+)\\\",.*?\\\"name\\\":\\\"([^"]+)\\\",.*?\\\"gender\\\":\\\"([^"]+)\\\",.*?\\\"gunTime\\\":(\d+),.*?\\\"chipTime\\\":(\d+),.*?\\\"rankOverall\\\":(\d+)'
+            
+            for match in re.finditer(broader_pattern, json_string):
+                try:
+                    participant_id = match.group(1)
+                    bib_number = match.group(2)
+                    name = match.group(3)
+                    gender = match.group(4)
+                    gun_time_ms = int(match.group(5))
+                    chip_time_ms = int(match.group(6))
+                    rank = int(match.group(7))
+                    
+                    # Convert milliseconds to seconds
+                    gun_time_seconds = gun_time_ms / 1000.0
+                    chip_time_seconds = chip_time_ms / 1000.0
+                    
+                    result = {
+                        'bib_number': bib_number,
+                        'name': name,
+                        'gender': gender.lower(),
+                        'gun_time_seconds': gun_time_seconds,
+                        'net_time_seconds': chip_time_seconds,
+                        'rank_overall': rank,
+                        'participant_id': participant_id
+                    }
+                    
+                    results.append(result)
+                    
+                except (ValueError, IndexError) as e:
+                    logger.debug(f"Error parsing participant in broader search: {str(e)}")
+                    continue
+                    
+            if results:
+                logger.info(f"Broader search found {len(results)} participants")
+                
+        except Exception as e:
+            logger.debug(f"Error in broader participant search: {str(e)}")
 
     def _process_json_results(self, json_data: Dict) -> List[Dict]:
         """
